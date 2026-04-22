@@ -1,0 +1,141 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  h1,
+  h2,
+  p {
+    margin: 0;
+  }
+}
+
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.32) rgba(255, 255, 255, 0.08);
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.2));
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.26));
+}
+
+.beat-wave-path {
+  fill: none;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 18 12;
+  animation:
+    beat-wave-flow 7s linear infinite,
+    beat-wave-pulse 4.2s ease-in-out infinite;
+}
+
+.beat-wave-path--alt {
+  stroke-width: 1.5;
+  opacity: 0.6;
+  animation-duration: 10s, 5.6s;
+  animation-direction: reverse, alternate;
+}
+
+.beat-wave-glow {
+  position: absolute;
+  top: 40%;
+  left: -28%;
+  width: 44%;
+  height: 28%;
+  border-radius: 999px;
+  background: radial-gradient(
+    circle,
+    rgba(254, 240, 138, 0.44) 0%,
+    rgba(254, 240, 138, 0.2) 34%,
+    rgba(254, 240, 138, 0) 75%
+  );
+  filter: blur(12px);
+  animation: beat-glow-sweep 7.2s cubic-bezier(0.32, 0.72, 0, 1) infinite;
+}
+
+@keyframes beat-wave-flow {
+  0% {
+    stroke-dashoffset: 0;
+  }
+
+  100% {
+    stroke-dashoffset: -300;
+  }
+}
+
+@keyframes beat-wave-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes beat-glow-sweep {
+  0% {
+    transform: translateX(0) scaleX(0.84);
+    opacity: 0.18;
+  }
+
+  46% {
+    opacity: 0.68;
+  }
+
+  100% {
+    transform: translateX(360%) scaleX(1.22);
+    opacity: 0.18;
+  }
+}
+
+@keyframes modal-holo-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.8);
+    filter: blur(8px);
+  }
+
+  72% {
+    opacity: 1;
+    transform: scale(1.02);
+    filter: blur(0);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
