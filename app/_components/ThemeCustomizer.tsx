@@ -34,11 +34,6 @@ export default function ThemeCustomizer() {
     setBoxBlur,
     setBoxOpacity,
     setBoxShadowOpacity,
-    setWaterSpeed,
-    setWaterDepth,
-    setWaterClarity,
-    setWaterWaves,
-    setWaterReflection,
     resetTheme,
   } = useThemeCustomizer()
 
@@ -63,14 +58,6 @@ export default function ThemeCustomizer() {
     setBoxBlur(draftTheme.boxBlur)
     setBoxOpacity(draftTheme.boxOpacity)
     setBoxShadowOpacity(draftTheme.boxShadowOpacity)
-  }
-
-  const applyWaterChanges = () => {
-    setWaterSpeed(draftTheme.waterSpeed)
-    setWaterDepth(draftTheme.waterDepth)
-    setWaterClarity(draftTheme.waterClarity)
-    setWaterWaves(draftTheme.waterWaves)
-    setWaterReflection(draftTheme.waterReflection)
   }
 
   const applyTypographyChanges = () => {
@@ -347,131 +334,6 @@ export default function ThemeCustomizer() {
             </section>
 
             <section className="rounded-2xl border p-3" style={sectionCardStyle}>
-              <SectionTitle title="[ EFECTO AGUA ]" color={sectionTitleColor} />
-
-              <div className="mt-3 space-y-3">
-                <label className="block">
-                  <div className="flex items-center justify-between">
-                    <span className="[font-family:var(--font-body)] text-[0.74rem] font-semibold uppercase tracking-[0.1em]" style={{ color: panelMutedTextColor }}>
-                      Velocidad
-                    </span>
-                    <span className="[font-family:var(--font-body)] text-[0.72rem] font-medium" style={{ color: panelTextColor }}>
-                      {draftTheme.waterSpeed.toFixed(2)}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0.1}
-                    max={3}
-                    step={0.05}
-                    value={draftTheme.waterSpeed}
-                    onChange={(event) => updateDraftTheme('waterSpeed', Number(event.target.value))}
-                    className={rangeClassName}
-                    style={sliderStyle}
-                    aria-label="Velocidad de animacion del agua"
-                  />
-                </label>
-
-                <label className="block">
-                  <div className="flex items-center justify-between">
-                    <span className="[font-family:var(--font-body)] text-[0.74rem] font-semibold uppercase tracking-[0.1em]" style={{ color: panelMutedTextColor }}>
-                      Profundidad
-                    </span>
-                    <span className="[font-family:var(--font-body)] text-[0.72rem] font-medium" style={{ color: panelTextColor }}>
-                      {draftTheme.waterDepth.toFixed(2)}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={2}
-                    step={0.05}
-                    value={draftTheme.waterDepth}
-                    onChange={(event) => updateDraftTheme('waterDepth', Number(event.target.value))}
-                    className={rangeClassName}
-                    style={sliderStyle}
-                    aria-label="Profundidad del agua"
-                  />
-                </label>
-
-                <label className="block">
-                  <div className="flex items-center justify-between">
-                    <span className="[font-family:var(--font-body)] text-[0.74rem] font-semibold uppercase tracking-[0.1em]" style={{ color: panelMutedTextColor }}>
-                      Claridad
-                    </span>
-                    <span className="[font-family:var(--font-body)] text-[0.72rem] font-medium" style={{ color: panelTextColor }}>
-                      {draftTheme.waterClarity.toFixed(2)}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={2}
-                    step={0.05}
-                    value={draftTheme.waterClarity}
-                    onChange={(event) => updateDraftTheme('waterClarity', Number(event.target.value))}
-                    className={rangeClassName}
-                    style={sliderStyle}
-                    aria-label="Claridad del agua"
-                  />
-                </label>
-
-                <label className="block">
-                  <div className="flex items-center justify-between">
-                    <span className="[font-family:var(--font-body)] text-[0.74rem] font-semibold uppercase tracking-[0.1em]" style={{ color: panelMutedTextColor }}>
-                      Olas
-                    </span>
-                    <span className="[font-family:var(--font-body)] text-[0.72rem] font-medium" style={{ color: panelTextColor }}>
-                      {draftTheme.waterWaves.toFixed(2)}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0.2}
-                    max={3}
-                    step={0.05}
-                    value={draftTheme.waterWaves}
-                    onChange={(event) => updateDraftTheme('waterWaves', Number(event.target.value))}
-                    className={rangeClassName}
-                    style={sliderStyle}
-                    aria-label="Intensidad de olas"
-                  />
-                </label>
-
-                <label className="block">
-                  <div className="flex items-center justify-between">
-                    <span className="[font-family:var(--font-body)] text-[0.74rem] font-semibold uppercase tracking-[0.1em]" style={{ color: panelMutedTextColor }}>
-                      Reflexion
-                    </span>
-                    <span className="[font-family:var(--font-body)] text-[0.72rem] font-medium" style={{ color: panelTextColor }}>
-                      {draftTheme.waterReflection.toFixed(2)}
-                    </span>
-                  </div>
-                  <input
-                    type="range"
-                    min={0}
-                    max={2}
-                    step={0.05}
-                    value={draftTheme.waterReflection}
-                    onChange={(event) => updateDraftTheme('waterReflection', Number(event.target.value))}
-                    className={rangeClassName}
-                    style={sliderStyle}
-                    aria-label="Intensidad de reflexion"
-                  />
-                </label>
-
-                <button
-                  type="button"
-                  onClick={applyWaterChanges}
-                  className="w-full rounded-xl border px-3 py-2 [font-family:var(--font-body)] text-[0.74rem] font-semibold uppercase tracking-[0.12em] transition hover:bg-white/10"
-                  style={applyButtonStyle}
-                >
-                  Aplicar Cambios
-                </button>
-              </div>
-            </section>
-
-            <section className="rounded-2xl border p-3" style={sectionCardStyle}>
               <SectionTitle title="[ TIPOGRAFIA ]" color={sectionTitleColor} />
 
               <div className="mt-3 space-y-3">
@@ -492,11 +354,9 @@ export default function ThemeCustomizer() {
                     }}
                     aria-label="Seleccionar fuente global"
                   >
-                    <option value="var(--font-body)">Manrope (Default)</option>
-                    <option value="var(--font-title)">Baloo Da 2</option>
-                    <option value="Helvetica, Arial, sans-serif">Helvetica</option>
-                    <option value="Inter, sans-serif">Inter</option>
-                    <option value="sans-serif">System Sans</option>
+                    <option value="Helvetica Neue, Helvetica, Arial, sans-serif">
+                      Helvetica Neue
+                    </option>
                   </select>
                 </label>
 

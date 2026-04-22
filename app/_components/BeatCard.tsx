@@ -1,8 +1,7 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
-import VanillaTilt from 'vanilla-tilt'
-import { memo, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { rgbaFromHex } from './themeColor'
 
 type LicenseOption = {
@@ -84,6 +83,17 @@ type BeatCardProps = {
   onAddToCart: (item: BeatCartPayload) => void
 }
 
+const quickEase: [number, number, number, number] = [0.22, 1, 0.36, 1]
+const quickLayoutTransition = { layout: { duration: 0.28, ease: quickEase } }
+const cardLayoutSpringTransition = {
+  layout: {
+    type: 'spring' as const,
+    stiffness: 500,
+    damping: 35,
+    mass: 0.8,
+  },
+}
+
 function BeatCardComponent({
   beatId,
   title,
@@ -97,15 +107,14 @@ function BeatCardComponent({
   onCloseExpansion,
   onAddToCart,
 }: BeatCardProps) {
-  const tiltRef = useRef<(HTMLDivElement & { vanillaTilt?: { destroy: () => void } }) | null>(null)
   const visualizerRef = useRef<HTMLDivElement | null>(null)
+  const visualVideoRef = useRef<HTMLVideoElement | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
-  const uniqueId = useId().replace(/:/g, '-')
+  const persistedVideoTimeRef = useRef(0)
+  const persistedVideoWasPlayingRef = useRef(false)
   const cardLayoutId = `beat-card-${beatId}`
   const visualizerLayoutId = `beat-visualizer-${beatId}`
   const visualizerMediaLayoutId = `beat-visualizer-media-${beatId}`
-  const gradientId = `wave-gradient-${uniqueId}`
-  const blurId = `wave-blur-${uniqueId}`
   const hasVideo = Boolean(videoSrc)
 
   const [editableBpm, setEditableBpm] = useState(bpm)
@@ -117,28 +126,7 @@ function BeatCardComponent({
   const [currentTime, setCurrentTime] = useState(0)
   const [shouldLoadVideo, setShouldLoadVideo] = useState(!hasVideo)
 
-  useEffect(() => {
-    const tiltElement = tiltRef.current
-
-    if (!tiltElement) {
-      return
-    }
-
-    tiltElement.vanillaTilt?.destroy()
-
-    VanillaTilt.init(tiltElement, {
-      max: 10,
-      speed: 400,
-      glare: true,
-      'max-glare': 0.15,
-    })
-
-    const tiltInstance = tiltElement.vanillaTilt
-
-    return () => {
-      tiltInstance?.destroy()
-    }
-  }, [])
+  // Minimal mode: VanillaTilt is intentionally disabled for static and precise interactions.
 
   useEffect(() => {
     if (!hasVideo || shouldLoadVideo) {
@@ -204,11 +192,36 @@ function BeatCardComponent({
     audioRef.current?.pause()
   }, [isActive])
 
+  useEffect(() => {
+    const visualizerVideo = visualVideoRef.current
+
+    if (!visualizerVideo) {
+      return
+    }
+
+    if (persistedVideoTimeRef.current > 0.01) {
+      const drift = Math.abs(visualizerVideo.currentTime - persistedVideoTimeRef.current)
+
+      if (drift > 0.12) {
+        try {
+          visualizerVideo.currentTime = persistedVideoTimeRef.current
+        } catch {
+          // Ignore seek races while metadata is still loading.
+        }
+      }
+    }
+
+    if (persistedVideoWasPlayingRef.current && visualizerVideo.paused) {
+      void visualizerVideo.play().catch(() => {
+        persistedVideoWasPlayingRef.current = false
+      })
+    }
+  }, [isActive, shouldLoadVideo])
+
   const {
-    accentStrong,
-    accentMedium,
     textPrimary,
     textMuted,
+    specDotColor,
     titleTypographyStyle,
     specLabelTypographyStyle,
     licenseNameTypographyStyle,
@@ -222,74 +235,64 @@ function BeatCardComponent({
     metadataPanelStyle,
     editableInputStyle,
   } = useMemo(() => {
-    const nextAccentStrong = rgbaFromHex(theme.accentColor, 0.88)
-    const nextAccentMedium = rgbaFromHex(theme.accentColor, 0.62)
-    const nextAccentSoft = rgbaFromHex(theme.accentColor, 0.5)
-    const nextTextPrimary = rgbaFromHex(theme.textColor, 0.96)
+    const nextTextPrimary = rgbaFromHex(theme.textColor, 0.94)
     const nextTextSecondary = rgbaFromHex(theme.textColor, 0.78)
-    const nextTextMuted = rgbaFromHex(theme.textColor, 0.66)
+    const nextTextMuted = rgbaFromHex(theme.textColor, 0.62)
     const useHelveticaTracking = theme.fontFamily.toLowerCase().includes('helvetica')
     const overlayOpacityPercent = theme.overlayOpacity <= 1 ? theme.overlayOpacity * 100 : theme.overlayOpacity
     const nextOverlayOpacityNormalized = Math.min(1, Math.max(0, overlayOpacityPercent / 100))
-    const baseBackground = `${theme.boxColor}${Math.round((theme.boxOpacity / 100) * 255)
-      .toString(16)
-      .padStart(2, '0')}`
 
-    // Keep the glass recipe in one place so card and modal feel like the same physical surface.
     const cardMaterial: CSSProperties = {
-      background: baseBackground,
-      backdropFilter: `blur(${theme.boxBlur}px) saturate(180%)`,
-      WebkitBackdropFilter: `blur(${theme.boxBlur}px) saturate(180%)`,
-      boxShadow: `0 8px 32px 0 rgba(0,0,0,${theme.boxShadowOpacity / 100})`,
-      border: '1px solid rgba(255, 255, 255, 0.1)',
+      background: 'rgba(255,255,255,0.40)',
+      backdropFilter: `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
+      WebkitBackdropFilter: `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
+      border: '1px solid rgba(255,255,255,0.58)',
+      boxShadow: '0 8px 30px rgba(0,0,0,0.08)',
     }
 
     const cardInteractive: CSSProperties = {
       ...cardMaterial,
-      ['--card-hover-border' as string]: rgbaFromHex(theme.accentColor, 0.56),
       ...(isActive
         ? {
-            boxShadow: `0 8px 32px 0 rgba(0,0,0,${theme.boxShadowOpacity / 100}), 0 0 0 1px ${rgbaFromHex(theme.accentColor, 0.35)}`,
+            boxShadow: '0 10px 34px rgba(0,0,0,0.1)',
           }
         : null),
     }
 
-    const panelTintOpacity = Math.max(0.14, Math.min(0.34, (theme.boxOpacity / 100) * 0.48))
-
     const nextLicensePanelStyle: CSSProperties = {
-      background: `linear-gradient(140deg, ${rgbaFromHex(theme.boxColor, panelTintOpacity + 0.05)} 0%, ${rgbaFromHex(theme.boxColor, panelTintOpacity)} 55%, rgba(255,255,255,0.06) 100%)`,
-      backdropFilter: `blur(${theme.boxBlur + 14}px) saturate(185%)`,
-      WebkitBackdropFilter: `blur(${theme.boxBlur + 14}px) saturate(185%)`,
-      border: '1px solid rgba(255,255,255,0.22)',
-      boxShadow: `0 18px 44px rgba(0,0,0,${Math.max(0.24, theme.boxShadowOpacity / 100 - 0.08)})`,
+      background: 'rgba(255,255,255,0.42)',
+      backdropFilter: `blur(${Math.max(16, theme.boxBlur)}px)`,
+      WebkitBackdropFilter: `blur(${Math.max(16, theme.boxBlur)}px)`,
+      border: '1px solid rgba(255,255,255,0.6)',
+      boxShadow: '0 8px 30px rgba(0,0,0,0.08)',
     }
 
     const nextLicenseCardStyle: CSSProperties = {
-      background: 'linear-gradient(145deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 100%)',
-      border: '1px solid rgba(255,255,255,0.22)',
-      boxShadow: `inset 0 1px 0 rgba(255,255,255,0.28), 0 10px 24px rgba(0,0,0,${Math.max(0.16, theme.boxShadowOpacity / 100 - 0.12)})`,
-      backdropFilter: 'blur(16px) saturate(175%)',
-      WebkitBackdropFilter: 'blur(16px) saturate(175%)',
+      background: 'rgba(255,255,255,0.4)',
+      border: '1px solid rgba(255,255,255,0.58)',
+      boxShadow: '0 6px 18px rgba(0,0,0,0.06)',
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
     }
 
-    const nextVisualizerFallbackBlur = `blur(${Math.max(0, theme.boxBlur * 0.4).toFixed(1)}px) saturate(180%)`
+    const nextVisualizerFallbackBlur = `blur(${Math.max(6, theme.boxBlur * 0.35).toFixed(1)}px)`
 
     const nextVisualizerStyle: CSSProperties = {
-      backgroundColor: rgbaFromHex(theme.boxColor, Math.min(1, theme.boxOpacity / 100 + 0.06)),
-      backdropFilter: hasVideo ? 'saturate(180%)' : `blur(${theme.boxBlur}px) saturate(180%)`,
-      WebkitBackdropFilter: hasVideo ? 'saturate(180%)' : `blur(${theme.boxBlur}px) saturate(180%)`,
+      backgroundColor: 'rgba(255,255,255,0.38)',
+      backdropFilter: hasVideo ? 'saturate(108%)' : `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
+      WebkitBackdropFilter: hasVideo ? 'saturate(108%)' : `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
     }
 
     const nextMetadataPanelStyle: CSSProperties = {
-      backgroundColor: rgbaFromHex(theme.boxColor, Math.min(1, theme.boxOpacity / 100 + 0.1)),
-      backdropFilter: `blur(${theme.boxBlur}px) saturate(180%)`,
-      WebkitBackdropFilter: `blur(${theme.boxBlur}px) saturate(180%)`,
+      backgroundColor: 'rgba(255,255,255,0.40)',
+      backdropFilter: `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
+      WebkitBackdropFilter: `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
     }
 
     const nextEditableInputStyle: CSSProperties = {
       color: nextTextSecondary,
-      caretColor: theme.accentColor,
-      ['--editable-focus' as string]: nextAccentSoft,
+      caretColor: 'rgba(17,24,39,0.84)',
+      ['--editable-focus' as string]: 'rgba(17,24,39,0.24)',
       fontFamily: theme.fontFamily,
       fontWeight: theme.fontWeight,
       letterSpacing: useHelveticaTracking ? '0.005em' : '0.01em',
@@ -304,7 +307,7 @@ function BeatCardComponent({
     const nextSpecLabelTypographyStyle: CSSProperties = {
       fontFamily: theme.fontFamily,
       fontWeight: theme.fontWeight,
-      letterSpacing: useHelveticaTracking ? '0.09em' : '0.12em',
+      letterSpacing: useHelveticaTracking ? '0.08em' : '0.1em',
     }
 
     const nextLicenseNameTypographyStyle: CSSProperties = {
@@ -319,10 +322,9 @@ function BeatCardComponent({
     }
 
     return {
-      accentStrong: nextAccentStrong,
-      accentMedium: nextAccentMedium,
       textPrimary: nextTextPrimary,
       textMuted: nextTextMuted,
+      specDotColor: 'rgba(31,41,55,0.46)',
       titleTypographyStyle: nextTitleTypographyStyle,
       specLabelTypographyStyle: nextSpecLabelTypographyStyle,
       licenseNameTypographyStyle: nextLicenseNameTypographyStyle,
@@ -339,11 +341,7 @@ function BeatCardComponent({
   }, [
     hasVideo,
     isActive,
-    theme.accentColor,
     theme.boxBlur,
-    theme.boxColor,
-    theme.boxOpacity,
-    theme.boxShadowOpacity,
     theme.fontFamily,
     theme.fontWeight,
     theme.overlayOpacity,
@@ -351,12 +349,9 @@ function BeatCardComponent({
   ])
 
   const editableFieldClassName =
-    'mt-1 w-full rounded-xl border border-transparent bg-transparent px-1 py-0.5 text-[0.98rem] outline-none transition focus:border-[var(--editable-focus)] focus:bg-[rgba(255,255,255,0.04)]'
+    'mt-1 w-full rounded-xl border border-transparent bg-transparent px-1 py-0.5 text-[0.98rem] outline-none transition focus:border-[var(--editable-focus)] focus:bg-black/[0.04]'
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0
-  // This easing mimics a quick macOS-like expand/minimize snap without extra spring oscillation.
-  const motionEase: [number, number, number, number] = [0.22, 1, 0.36, 1]
-  const quickLayoutTransition = { layout: { duration: 0.3, ease: motionEase } }
   const gpuTransformStyle = useMemo<CSSProperties>(
     () => ({ transform: 'translateZ(0)', willChange: 'transform' }),
     []
@@ -434,7 +429,7 @@ function BeatCardComponent({
       </audio>
 
       <div
-        className="rounded-[24px] border border-[rgba(255,255,255,0.16)] px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.24)]"
+        className="rounded-xl border border-white/60 px-4 py-3 shadow-[0_8px_30px_rgba(0,0,0,0.08)]"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
         role="group"
@@ -448,7 +443,7 @@ function BeatCardComponent({
               void handleTogglePlayback()
             }}
             onKeyDown={(event) => event.stopPropagation()}
-            className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-white/25 bg-white/10 px-3 [font-family:var(--font-body)] text-[0.7rem] font-semibold uppercase tracking-[0.08em] text-white/90 transition hover:bg-white/20"
+            className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-slate-700/20 bg-black/5 px-3 [font-family:var(--font-body)] text-[0.7rem] font-semibold uppercase tracking-[0.08em] text-slate-700"
           >
             {isPlaying ? 'Pause' : 'Play'}
           </button>
@@ -466,12 +461,12 @@ function BeatCardComponent({
               }}
               onClick={(event) => event.stopPropagation()}
               onKeyDown={(event) => event.stopPropagation()}
-              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/25 accent-white"
+              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-slate-700"
               aria-label="Posicion del audio"
             />
           </div>
 
-          <p className="[font-family:var(--font-body)] text-[0.72rem] font-semibold text-white/85">
+          <p className="[font-family:var(--font-body)] text-[0.72rem] font-semibold text-slate-700/90">
             {formatTime(currentTime)} / {formatTime(duration)}
           </p>
         </div>
@@ -481,7 +476,7 @@ function BeatCardComponent({
 
   const renderMetadataPanel = () => (
     <div
-      className="rounded-[30px] border border-[rgba(255,255,255,0.1)] px-5 py-4 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]"
+      className="rounded-xl border border-white/60 px-5 py-4 shadow-[0_8px_30px_rgba(0,0,0,0.08)]"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
       role="group"
@@ -497,8 +492,8 @@ function BeatCardComponent({
         {title}
       </h2>
 
-      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:divide-x sm:divide-[rgba(255,255,255,0.08)]">
-        <div className="rounded-2xl bg-[rgba(255,255,255,0.02)] px-3 py-2 sm:rounded-none sm:bg-transparent sm:px-0 sm:pr-3 sm:py-0">
+      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:divide-x sm:divide-black/[0.08]">
+        <div className="rounded-xl bg-black/[0.02] px-3 py-2 sm:rounded-none sm:bg-transparent sm:px-0 sm:py-0 sm:pr-3">
           <p
             className="flex items-center gap-2 [font-family:var(--font-body)] text-[0.64rem] font-semibold uppercase tracking-[0.12em]"
             style={{
@@ -506,7 +501,7 @@ function BeatCardComponent({
               color: textMuted,
             }}
           >
-            <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: accentStrong }} />
+            <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: specDotColor }} />
             BPM
           </p>
           <input
@@ -520,7 +515,7 @@ function BeatCardComponent({
           />
         </div>
 
-        <div className="rounded-2xl bg-[rgba(255,255,255,0.02)] px-3 py-2 sm:rounded-none sm:bg-transparent sm:px-3 sm:py-0">
+        <div className="rounded-xl bg-black/[0.02] px-3 py-2 sm:rounded-none sm:bg-transparent sm:px-3 sm:py-0">
           <p
             className="flex items-center gap-2 [font-family:var(--font-body)] text-[0.64rem] font-semibold uppercase tracking-[0.12em]"
             style={{
@@ -528,7 +523,7 @@ function BeatCardComponent({
               color: textMuted,
             }}
           >
-            <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: accentStrong }} />
+            <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: specDotColor }} />
             Genero
           </p>
           <input
@@ -542,7 +537,7 @@ function BeatCardComponent({
           />
         </div>
 
-        <div className="rounded-2xl bg-[rgba(255,255,255,0.02)] px-3 py-2 sm:rounded-none sm:bg-transparent sm:px-3 sm:py-0">
+        <div className="rounded-xl bg-black/[0.02] px-3 py-2 sm:rounded-none sm:bg-transparent sm:px-3 sm:py-0">
           <p
             className="flex items-center gap-2 [font-family:var(--font-body)] text-[0.64rem] font-semibold uppercase tracking-[0.12em]"
             style={{
@@ -550,7 +545,7 @@ function BeatCardComponent({
               color: textMuted,
             }}
           >
-            <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: accentStrong }} />
+            <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: specDotColor }} />
             Tono
           </p>
           <input
@@ -573,10 +568,10 @@ function BeatCardComponent({
         layout
         layoutId={visualizerLayoutId}
         ref={visualizerRef}
-        className="relative min-h-[190px] overflow-hidden rounded-[32px] border border-[rgba(255,255,255,0.1)] shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]"
+        className="relative min-h-[190px] overflow-hidden rounded-xl border border-white/60 shadow-[0_8px_30px_rgba(0,0,0,0.08)]"
         style={{
           ...visualizerStyle,
-          borderRadius: 32,
+          borderRadius: 16,
         }}
         transition={quickLayoutTransition}
       >
@@ -584,9 +579,10 @@ function BeatCardComponent({
           <motion.video
             layout
             layoutId={visualizerMediaLayoutId}
+            ref={visualVideoRef}
             className="absolute inset-0 h-full w-full object-cover"
             style={{
-              borderRadius: 32,
+              borderRadius: 16,
               objectFit: 'cover',
               width: '100%',
               height: '100%',
@@ -595,7 +591,31 @@ function BeatCardComponent({
             loop
             muted
             playsInline
-            preload={showPlayer || isActive ? 'metadata' : 'none'}
+            preload="auto"
+            onLoadedMetadata={(event) => {
+              if (persistedVideoTimeRef.current > 0.01) {
+                try {
+                  event.currentTarget.currentTime = persistedVideoTimeRef.current
+                } catch {
+                  // Ignore while browser is still resolving source.
+                }
+              }
+
+              if (persistedVideoWasPlayingRef.current && event.currentTarget.paused) {
+                void event.currentTarget.play().catch(() => {
+                  persistedVideoWasPlayingRef.current = false
+                })
+              }
+            }}
+            onTimeUpdate={(event) => {
+              persistedVideoTimeRef.current = event.currentTarget.currentTime
+            }}
+            onPlay={() => {
+              persistedVideoWasPlayingRef.current = true
+            }}
+            onPause={() => {
+              persistedVideoWasPlayingRef.current = false
+            }}
           >
             <source src={videoSrc} type="video/mp4" />
           </motion.video>
@@ -603,29 +623,23 @@ function BeatCardComponent({
           <motion.div
             layout
             layoutId={visualizerMediaLayoutId}
-            className="absolute inset-0 rounded-[32px] bg-[radial-gradient(80%_80%_at_50%_40%,rgba(255,255,255,0.08),rgba(0,0,0,0.18))]"
-            style={{ borderRadius: 32 }}
+            className="absolute inset-0 rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.28)_0%,rgba(0,0,0,0.08)_100%)]"
+            style={{ borderRadius: 16 }}
           />
         ) : (
           <motion.div
             layout
             layoutId={visualizerMediaLayoutId}
-            className="absolute inset-0 overflow-hidden rounded-[32px]"
-            style={{ borderRadius: 32 }}
+            className="absolute inset-0 overflow-hidden rounded-xl"
+            style={{ borderRadius: 16 }}
           >
             <div
               className="pointer-events-none absolute inset-0"
               style={{
                 background:
-                  'linear-gradient(180deg, rgba(255,255,255,0.14) 0%, rgba(255,255,255,0.03) 36%, rgba(0,0,0,0.26) 100%)',
+                  'linear-gradient(180deg, rgba(255,255,255,0.26) 0%, rgba(255,255,255,0.06) 36%, rgba(0,0,0,0.18) 100%)',
                 backdropFilter: visualizerFallbackBlur,
                 WebkitBackdropFilter: visualizerFallbackBlur,
-              }}
-            />
-            <div
-              className="pointer-events-none absolute inset-0"
-              style={{
-                background: `radial-gradient(120% 90% at 50% 10%, ${rgbaFromHex(theme.accentColor, 0.14)}, ${rgbaFromHex(theme.accentColor, 0.02)} 48%, rgba(0,0,0,0) 80%)`,
               }}
             />
 
@@ -634,49 +648,28 @@ function BeatCardComponent({
               viewBox="0 0 600 220"
               preserveAspectRatio="none"
             >
-              <defs>
-                <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="0">
-                  <stop offset="0%" stopColor={rgbaFromHex(theme.accentColor, 0.05)} />
-                  <stop offset="18%" stopColor={accentMedium} />
-                  <stop offset="50%" stopColor="rgba(255,255,255,0.7)" />
-                  <stop offset="82%" stopColor={accentMedium} />
-                  <stop offset="100%" stopColor={rgbaFromHex(theme.accentColor, 0.05)} />
-                </linearGradient>
-                <filter id={blurId} x="-10%" y="-10%" width="120%" height="120%">
-                  <feGaussianBlur stdDeviation="1.6" />
-                </filter>
-              </defs>
-
               <path
                 className="beat-wave-path"
                 d="M0 112 C 40 86, 90 142, 140 112 C 190 82, 240 142, 290 112 C 340 84, 390 140, 440 112 C 490 88, 540 138, 600 112"
-                stroke={`url(#${gradientId})`}
-                filter={`url(#${blurId})`}
+                stroke="rgba(31,41,55,0.38)"
               />
               <path
                 className="beat-wave-path beat-wave-path--alt"
                 d="M0 118 C 55 96, 105 146, 155 118 C 205 90, 255 146, 305 118 C 355 92, 405 146, 455 118 C 505 96, 555 146, 600 118"
-                stroke={`url(#${gradientId})`}
+                stroke="rgba(31,41,55,0.26)"
               />
             </svg>
-
-            <div
-              className="pointer-events-none beat-wave-glow"
-              style={{
-                background: `radial-gradient(circle, ${rgbaFromHex(theme.accentColor, 0.44)} 0%, ${rgbaFromHex(theme.accentColor, 0.2)} 34%, ${rgbaFromHex(theme.accentColor, 0)} 75%)`,
-              }}
-            />
           </motion.div>
         )}
       </motion.div>
 
       {showPlayer ? (
-        <AnimatePresence mode="wait">
+        <AnimatePresence>
           {showExpandedDetails ? (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1, transition: { delay: 0.2 } }}
-              exit={{ opacity: 0, transition: { duration: 0.1 } }}
+              exit={{ opacity: 0, transition: { duration: 0.05 } }}
               className="flex flex-col gap-4"
             >
               {renderPlayerPanel()}
@@ -694,7 +687,6 @@ function BeatCardComponent({
     <>
       {!isActive ? (
         <motion.div
-          ref={tiltRef}
           layoutId={cardLayoutId}
           role="button"
           tabIndex={0}
@@ -709,27 +701,23 @@ function BeatCardComponent({
               handleOpenExpansion()
             }
           }}
-          className="group relative w-full cursor-pointer overflow-hidden rounded-[42px] border p-4 text-left transition-all duration-300 [transition-timing-function:cubic-bezier(0.32,0.72,0,1)] hover:-translate-y-[2px] hover:border-[var(--card-hover-border)]"
+          className="relative w-full cursor-pointer overflow-hidden rounded-2xl border p-4 text-left"
           style={{
             ...cardInteractiveStyle,
             ...gpuTransformStyle,
           }}
           aria-pressed={isActive}
-          transition={quickLayoutTransition}
+          transition={cardLayoutSpringTransition}
         >
           {renderCardVisual(false)}
         </motion.div>
       ) : null}
 
-      <AnimatePresence mode="wait">
+      <AnimatePresence>
         {isActive ? (
-          <motion.div
-            className="fixed inset-0 z-40"
-            onClick={handleCloseExpansion}
-            role="presentation"
-          >
+          <motion.div className="fixed inset-0 z-40" onClick={handleCloseExpansion} role="presentation">
             <motion.div
-              className="absolute inset-0 backdrop-blur-2xl"
+              className="absolute inset-0 backdrop-blur-xl"
               style={{
                 ...gpuOpacityStyle,
                 backgroundColor: theme.expandedOverlayColor,
@@ -737,7 +725,7 @@ function BeatCardComponent({
               initial={{ opacity: 0 }}
               animate={{ opacity: overlayOpacityNormalized }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: motionEase }}
+              transition={{ duration: 0.08, ease: quickEase }}
             />
 
             <div className="relative z-50 flex h-full w-full items-center justify-center p-4">
@@ -745,14 +733,13 @@ function BeatCardComponent({
                 className="relative w-full"
                 style={gpuTransformStyle}
                 onClick={(event) => event.stopPropagation()}
-                initial={{ scale: 0.992, y: 6 }}
-                animate={{ scale: 1 }}
-                exit={{ opacity: 0, transition: { duration: 0.1 } }}
-                transition={{ duration: 0.24, ease: motionEase }}
+                initial={{ opacity: 1 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0, transition: { duration: 0.05 } }}
               >
                 <button
                   type="button"
-                  className="absolute right-2 top-2 z-[2] inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/35 text-white/90 transition hover:bg-black/55"
+                  className="absolute right-2 top-2 z-[2] inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/45 bg-black/15 text-slate-700"
                   onClick={handleCloseExpansion}
                   aria-label="Cerrar vista expandida"
                 >
@@ -767,84 +754,87 @@ function BeatCardComponent({
                 >
                   <motion.div
                     layoutId={cardLayoutId}
-                    className={`relative w-full overflow-hidden rounded-[42px] border p-4 sm:p-4 ${showExpandedDetails ? 'md:w-[52%]' : ''}`}
+                    className={`relative w-full overflow-hidden rounded-2xl border p-4 sm:p-4 ${showExpandedDetails ? 'md:w-[52%]' : ''}`}
                     style={{
                       ...cardInteractiveStyle,
                       ...gpuTransformStyle,
                     }}
-                    transition={quickLayoutTransition}
+                    transition={cardLayoutSpringTransition}
                   >
                     {renderCardVisual(true)}
                   </motion.div>
 
-                  <AnimatePresence mode="wait">
+                  <AnimatePresence>
                     {showExpandedDetails ? (
                       <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1, transition: { delay: 0.2 } }}
-                        exit={{ opacity: 0, transition: { duration: 0.1 } }}
+                        exit={{ opacity: 0, transition: { duration: 0.05 } }}
                         className="w-full md:w-[48%]"
                       >
-                        <motion.aside
-                          className="relative w-full overflow-hidden rounded-[30px] border p-4"
-                          style={{
-                            ...licensePanelStyle,
-                            ...gpuTransformStyle,
-                          }}
+                        <motion.div
+                          initial={{ opacity: 1 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0, transition: { duration: 0.05 } }}
                         >
-                        <div
-                          className="pointer-events-none absolute inset-0"
-                          style={{
-                            background: `radial-gradient(120% 110% at 0% 0%, ${rgbaFromHex(theme.accentColor, 0.22)} 0%, rgba(255,255,255,0.06) 42%, rgba(255,255,255,0) 74%)`,
-                          }}
-                        />
+                          <motion.aside
+                            className="relative w-full overflow-hidden rounded-xl border p-4"
+                            style={{
+                              ...licensePanelStyle,
+                              ...gpuTransformStyle,
+                            }}
+                          >
+                            <div
+                              className="pointer-events-none absolute inset-0"
+                              style={{
+                                background:
+                                  'linear-gradient(135deg, rgba(255,255,255,0.24) 0%, rgba(255,255,255,0.06) 60%, rgba(255,255,255,0) 100%)',
+                              }}
+                            />
 
-                        <div className="relative">
-                          <h4 className="[font-family:var(--font-title)] text-[clamp(1.5rem,4vw,2.2rem)] font-extrabold leading-[1] text-white/95">
-                            Licencias
-                          </h4>
-                          <p className="mt-1 [font-family:var(--font-body)] text-[0.74rem] uppercase tracking-[0.12em] text-white/70">
-                            Elige una licencia
-                          </p>
+                            <div className="relative">
+                              <h4 className="[font-family:var(--font-title)] text-[clamp(1.5rem,4vw,2.2rem)] font-extrabold leading-[1] text-slate-900/95">
+                                Licencias
+                              </h4>
+                              <p className="mt-1 [font-family:var(--font-body)] text-[0.74rem] uppercase tracking-[0.12em] text-slate-700/80">
+                                Elige una licencia
+                              </p>
 
-                          <div className="mt-4 grid grid-cols-1 gap-3">
-                            {LICENSE_OPTIONS.map((license) => (
-                              <article
-                                key={license.id}
-                                className="rounded-2xl p-4 transition-colors hover:bg-white/[0.12]"
-                                style={licenseCardStyle}
-                              >
-                                <div className="flex items-start justify-between gap-3">
-                                  <h5
-                                    className="[font-family:var(--font-title)] text-[1.25rem] font-extrabold leading-[1.05] text-white/95"
-                                    style={licenseNameTypographyStyle}
-                                  >
-                                    {license.name}
-                                  </h5>
-                                  <p className="[font-family:var(--font-body)] text-[0.88rem] font-bold" style={{ color: rgbaFromHex(theme.accentColor, 0.95) }}>
-                                    {license.priceLabel}
-                                  </p>
-                                </div>
+                              <div className="mt-4 grid grid-cols-1 gap-3">
+                                {LICENSE_OPTIONS.map((license) => (
+                                  <article key={license.id} className="rounded-xl p-4" style={licenseCardStyle}>
+                                    <div className="flex items-start justify-between gap-3">
+                                      <h5
+                                        className="[font-family:var(--font-title)] text-[1.25rem] font-extrabold leading-[1.05] text-slate-900/95"
+                                        style={licenseNameTypographyStyle}
+                                      >
+                                        {license.name}
+                                      </h5>
+                                      <p className="[font-family:var(--font-body)] text-[0.88rem] font-bold text-slate-900">
+                                        {license.priceLabel}
+                                      </p>
+                                    </div>
 
-                                <p
-                                  className="mt-2 [font-family:var(--font-body)] text-[0.74rem] leading-relaxed text-white/80"
-                                  style={licenseDescriptionTypographyStyle}
-                                >
-                                  {license.description}
-                                </p>
+                                    <p
+                                      className="mt-2 [font-family:var(--font-body)] text-[0.74rem] leading-relaxed text-slate-700/85"
+                                      style={licenseDescriptionTypographyStyle}
+                                    >
+                                      {license.description}
+                                    </p>
 
-                                <button
-                                  type="button"
-                                  onClick={() => handleAddLicenseToCart(license)}
-                                  className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-white/25 bg-white/[0.08] px-3 py-2 [font-family:var(--font-body)] text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-white/92 transition hover:bg-white/20"
-                                >
-                                  Anadir al carrito
-                                </button>
-                              </article>
-                            ))}
-                          </div>
-                        </div>
-                        </motion.aside>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleAddLicenseToCart(license)}
+                                      className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-slate-700/20 bg-black/5 px-3 py-2 [font-family:var(--font-body)] text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-slate-800"
+                                    >
+                                      Anadir al carrito
+                                    </button>
+                                  </article>
+                                ))}
+                              </div>
+                            </div>
+                          </motion.aside>
+                        </motion.div>
                       </motion.div>
                     ) : null}
                   </AnimatePresence>

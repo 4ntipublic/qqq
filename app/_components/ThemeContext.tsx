@@ -15,11 +15,6 @@ export type ThemeState = {
   boxBlur: number
   boxOpacity: number
   boxShadowOpacity: number
-  waterSpeed: number
-  waterDepth: number
-  waterClarity: number
-  waterWaves: number
-  waterReflection: number
 }
 
 type ThemeContextValue = {
@@ -34,30 +29,20 @@ type ThemeContextValue = {
   setBoxBlur: (nextValue: number) => void
   setBoxOpacity: (nextValue: number) => void
   setBoxShadowOpacity: (nextValue: number) => void
-  setWaterSpeed: (nextValue: number) => void
-  setWaterDepth: (nextValue: number) => void
-  setWaterClarity: (nextValue: number) => void
-  setWaterWaves: (nextValue: number) => void
-  setWaterReflection: (nextValue: number) => void
   resetTheme: () => void
 }
 
 export const defaultTheme: ThemeState = {
-  boxColor: '#f0ead6',
-  accentColor: '#fef08a',
-  textColor: '#f8fafc',
-  fontFamily: 'var(--font-body)',
-  fontWeight: 500,
+  boxColor: '#f3f4f6',
+  accentColor: '#d4d4d8',
+  textColor: '#111827',
+  fontFamily: 'Helvetica Neue, Helvetica, Arial, sans-serif',
+  fontWeight: 300,
   expandedOverlayColor: '#2B3A42',
   overlayOpacity: 0.85,
   boxBlur: 20,
   boxOpacity: 4,
   boxShadowOpacity: 30,
-  waterSpeed: 1,
-  waterDepth: 1,
-  waterClarity: 1,
-  waterWaves: 1,
-  waterReflection: 1,
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null)
@@ -117,31 +102,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         setTheme((currentTheme) => ({
           ...currentTheme,
           boxShadowOpacity: nextValue,
-        })),
-      setWaterSpeed: (nextValue: number) =>
-        setTheme((currentTheme) => ({
-          ...currentTheme,
-          waterSpeed: clamp(nextValue, 0.1, 3),
-        })),
-      setWaterDepth: (nextValue: number) =>
-        setTheme((currentTheme) => ({
-          ...currentTheme,
-          waterDepth: clamp(nextValue, 0, 2),
-        })),
-      setWaterClarity: (nextValue: number) =>
-        setTheme((currentTheme) => ({
-          ...currentTheme,
-          waterClarity: clamp(nextValue, 0, 2),
-        })),
-      setWaterWaves: (nextValue: number) =>
-        setTheme((currentTheme) => ({
-          ...currentTheme,
-          waterWaves: clamp(nextValue, 0.2, 3),
-        })),
-      setWaterReflection: (nextValue: number) =>
-        setTheme((currentTheme) => ({
-          ...currentTheme,
-          waterReflection: clamp(nextValue, 0, 2),
         })),
       resetTheme: () => setTheme(defaultTheme),
     }),

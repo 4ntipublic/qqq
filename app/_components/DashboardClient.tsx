@@ -4,11 +4,9 @@ import { LayoutGroup } from 'framer-motion'
 import { useCallback, useMemo, useState, type CSSProperties } from 'react'
 import BeatCard, { type BeatCardTheme, type BeatCartPayload } from './BeatCard'
 import CartBubble from './CartBubble'
-import FloatingBackgroundElements from './FloatingBackgroundElements'
 import { ThemeProvider, useThemeCustomizer } from './ThemeContext'
 import ThemeCustomizer from './ThemeCustomizer'
 import { rgbaFromHex } from './themeColor'
-import WaterBackground from './WaterBackground'
 
 const beats = [
   {
@@ -95,21 +93,12 @@ function DashboardScene() {
 
   return (
     <>
-      <CartBubble itemCount={cartItems.length} />
-
-      <WaterBackground
-        speed={theme.waterSpeed}
-        depth={theme.waterDepth}
-        clarity={theme.waterClarity}
-        waves={theme.waterWaves}
-        reflection={theme.waterReflection}
-      />
-      <FloatingBackgroundElements accentColor={theme.accentColor} />
+      <CartBubble items={cartItems} />
       <ThemeCustomizer />
 
       <LayoutGroup id="beat-catalog-layout">
         <div
-          className="relative z-[1] flex min-h-screen w-full flex-col items-center justify-center bg-transparent px-4 py-7 sm:px-8 sm:py-10"
+          className="relative z-[1] flex min-h-screen w-full flex-col items-center justify-center bg-gradient-to-b from-[#ffffff] via-[#f3f4f6] to-[#e5e7eb] px-4 py-7 sm:px-8 sm:py-10"
           style={globalTypographyStyle}
         >
           <header
@@ -130,7 +119,7 @@ function DashboardScene() {
               return (
                 <div
                   key={beat.id}
-                  className={`transition-opacity duration-300 ${hideCard ? 'pointer-events-none opacity-0' : 'opacity-100'}`}
+                  className={`transition-opacity duration-300 ${hideCard ? 'pointer-events-none invisible opacity-0' : 'visible opacity-100'}`}
                 >
                   <BeatCard
                     beatId={beat.id}
