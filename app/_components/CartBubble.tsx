@@ -8,13 +8,12 @@ type CartBubbleProps = {
   items: BeatCartPayload[]
 }
 
-const folderTransition = {
-  layout: {
-    type: 'spring' as const,
-    stiffness: 500,
-    damping: 35,
-    mass: 0.8,
-  },
+const appleSpring = {
+  type: 'spring' as const,
+  stiffness: 350,
+  damping: 32,
+  mass: 1,
+  bounce: 0,
 }
 
 export default function CartBubble({ items }: CartBubbleProps) {
@@ -52,7 +51,7 @@ export default function CartBubble({ items }: CartBubbleProps) {
 
             <motion.section
               layoutId="macos-cart-folder"
-              transition={folderTransition}
+              transition={appleSpring}
               className="relative w-full max-w-[420px] overflow-hidden border border-white/55 bg-white/34 p-4 backdrop-blur-3xl"
               style={{
                 borderRadius: 30,
@@ -116,7 +115,7 @@ export default function CartBubble({ items }: CartBubbleProps) {
             key="bubble"
             type="button"
             layoutId="macos-cart-folder"
-            transition={folderTransition}
+            transition={appleSpring}
             className="relative flex h-14 w-14 items-center justify-center rounded-full border border-white/50 bg-white/35 text-slate-800 shadow-[0_12px_36px_rgba(15,23,42,0.14)] backdrop-blur-2xl"
             aria-label={`Carrito flotante, ${itemCount} items`}
             onClick={() => setIsExpanded(true)}

@@ -138,6 +138,15 @@ function DashboardScene() {
               )
             })}
           </section>
+
+          <div className="mt-6 flex w-full max-w-[1200px] justify-center">
+            <a
+              href="https://akpkyy.com/beats"
+              className="rounded-xl border border-black/15 bg-white/10 px-5 py-2 text-[0.84rem] font-light tracking-[0.02em] text-slate-800"
+            >
+              Ver catálogo completo
+            </a>
+          </div>
         </div>
       </LayoutGroup>
     </>

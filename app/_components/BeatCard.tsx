@@ -1,7 +1,7 @@
 'use client'
 
 import { AnimatePresence, motion } from 'framer-motion'
-import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { rgbaFromHex } from './themeColor'
 
 type LicenseOption = {
@@ -84,14 +84,12 @@ type BeatCardProps = {
 }
 
 const quickEase: [number, number, number, number] = [0.22, 1, 0.36, 1]
-const quickLayoutTransition = { layout: { duration: 0.28, ease: quickEase } }
-const cardLayoutSpringTransition = {
-  layout: {
-    type: 'spring' as const,
-    stiffness: 500,
-    damping: 35,
-    mass: 0.8,
-  },
+const appleSpring = {
+  type: 'spring' as const,
+  stiffness: 350,
+  damping: 32,
+  mass: 1,
+  bounce: 0,
 }
 
 function BeatCardComponent({
@@ -190,7 +188,31 @@ function BeatCardComponent({
     }
 
     audioRef.current?.pause()
+    persistedVideoTimeRef.current = 0
+    persistedVideoWasPlayingRef.current = false
+
+    if (visualVideoRef.current) {
+      try {
+        visualVideoRef.current.currentTime = 0
+      } catch {
+        // Ignore in-flight media reset errors.
+      }
+    }
   }, [isActive])
+
+  useLayoutEffect(() => {
+    const visualizerVideo = visualVideoRef.current
+
+    if (!visualizerVideo || persistedVideoTimeRef.current <= 0) {
+      return
+    }
+
+    try {
+      visualizerVideo.currentTime = persistedVideoTimeRef.current
+    } catch {
+      // Ignore seek races if the browser has not prepared enough data yet.
+    }
+  }, [isActive, shouldLoadVideo])
 
   useEffect(() => {
     const visualizerVideo = visualVideoRef.current
@@ -573,13 +595,23 @@ function BeatCardComponent({
           ...visualizerStyle,
           borderRadius: 16,
         }}
-        transition={quickLayoutTransition}
+        transition={appleSpring}
       >
         {hasVideo && shouldLoadVideo ? (
           <motion.video
             layout
             layoutId={visualizerMediaLayoutId}
-            ref={visualVideoRef}
+            ref={(el) => {
+              visualVideoRef.current = el
+
+              if (el && persistedVideoTimeRef.current > 0) {
+                try {
+                  el.currentTime = persistedVideoTimeRef.current
+                } catch {
+                  // Ignore callback ref races during node hydration.
+                }
+              }
+            }}
             className="absolute inset-0 h-full w-full object-cover"
             style={{
               borderRadius: 16,
@@ -592,21 +624,6 @@ function BeatCardComponent({
             muted
             playsInline
             preload="auto"
-            onLoadedMetadata={(event) => {
-              if (persistedVideoTimeRef.current > 0.01) {
-                try {
-                  event.currentTarget.currentTime = persistedVideoTimeRef.current
-                } catch {
-                  // Ignore while browser is still resolving source.
-                }
-              }
-
-              if (persistedVideoWasPlayingRef.current && event.currentTarget.paused) {
-                void event.currentTarget.play().catch(() => {
-                  persistedVideoWasPlayingRef.current = false
-                })
-              }
-            }}
             onTimeUpdate={(event) => {
               persistedVideoTimeRef.current = event.currentTarget.currentTime
             }}
@@ -616,6 +633,7 @@ function BeatCardComponent({
             onPause={() => {
               persistedVideoWasPlayingRef.current = false
             }}
+            transition={appleSpring}
           >
             <source src={videoSrc} type="video/mp4" />
           </motion.video>
@@ -625,6 +643,7 @@ function BeatCardComponent({
             layoutId={visualizerMediaLayoutId}
             className="absolute inset-0 rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.28)_0%,rgba(0,0,0,0.08)_100%)]"
             style={{ borderRadius: 16 }}
+            transition={appleSpring}
           />
         ) : (
           <motion.div
@@ -632,6 +651,7 @@ function BeatCardComponent({
             layoutId={visualizerMediaLayoutId}
             className="absolute inset-0 overflow-hidden rounded-xl"
             style={{ borderRadius: 16 }}
+            transition={appleSpring}
           >
             <div
               className="pointer-events-none absolute inset-0"
@@ -707,7 +727,7 @@ function BeatCardComponent({
             ...gpuTransformStyle,
           }}
           aria-pressed={isActive}
-          transition={cardLayoutSpringTransition}
+          transition={appleSpring}
         >
           {renderCardVisual(false)}
         </motion.div>
@@ -750,7 +770,7 @@ function BeatCardComponent({
                   layout
                   className={`mx-auto flex w-full flex-row items-center justify-center gap-4 ${showExpandedDetails ? 'max-w-[1120px]' : 'max-w-[560px]'}`}
                   style={gpuTransformStyle}
-                  transition={quickLayoutTransition}
+                  transition={appleSpring}
                 >
                   <motion.div
                     layoutId={cardLayoutId}
@@ -759,7 +779,7 @@ function BeatCardComponent({
                       ...cardInteractiveStyle,
                       ...gpuTransformStyle,
                     }}
-                    transition={cardLayoutSpringTransition}
+                    transition={appleSpring}
                   >
                     {renderCardVisual(true)}
                   </motion.div>
@@ -859,7 +879,7 @@ function areBeatCardPropsEqual(previousProps: BeatCardProps, nextProps: BeatCard
     previousProps.theme === nextProps.theme &&
     previousProps.isActive === nextProps.isActive &&
     previousProps.onSelect === nextProps.onSelect &&
-    previousProps.onCloseExpansion === nextProps.onCloseExpansion &&
+    previousProps.onCloseExpansion === nextProps.onCloseExpansion &&    
     previousProps.onAddToCart === nextProps.onAddToCart
   )
 }
