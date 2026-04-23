@@ -57,14 +57,10 @@ export type BeatCartPayload = {
 }
 
 export type BeatCardTheme = {
-  accentColor: string
   textColor: string
   fontFamily: string
   fontWeight: number
-  boxColor: string
   boxBlur: number
-  boxOpacity: number
-  boxShadowOpacity: number
   expandedOverlayColor: string
   overlayOpacity: number
 }
@@ -90,6 +86,128 @@ const appleSpring = {
   damping: 32,
   mass: 1,
   bounce: 0,
+}
+
+// ============================================================================
+// Cross-instance video sync (frame-accurate)
+// ============================================================================
+// Every <motion.video> that shares the same src registers itself here. A single
+// requestAnimationFrame loop runs at refresh-rate (~60Hz) and snaps any laggard
+// video whose currentTime is behind the leader by more than
+// VIDEO_SYNC_TOLERANCE_SECONDS. This replaces the previous onTimeUpdate-based
+// master clock which was both throttled (~250ms) and prone to leader oscillation,
+// leaving up to 0.2s residual offsets visible after a FLIP remount.
+
+const syncedVideoRegistry = new Map<string, Set<HTMLVideoElement>>()
+const VIDEO_SYNC_TOLERANCE_SECONDS = 0.08
+const VIDEO_LOOP_WRAP_GUARD_SECONDS = 1.5
+
+let syncRafHandle: number | null = null
+
+const runSyncPass = () => {
+  syncedVideoRegistry.forEach((videos) => {
+    if (videos.size < 2) {
+      return
+    }
+
+    // Elect the leader: the furthest-advanced video that is actually playing
+    // and has decoded metadata. Ignore elements that just (re)mounted.
+    let leaderTime = -Infinity
+    videos.forEach((video) => {
+      if (
+        video.readyState >= 2 &&
+        !video.paused &&
+        Number.isFinite(video.currentTime) &&
+        video.currentTime > leaderTime
+      ) {
+        leaderTime = video.currentTime
+      }
+    })
+
+    if (leaderTime === -Infinity) {
+      return
+    }
+
+    // Snap any laggard forward. Skip gaps larger than LOOP_WRAP_GUARD to avoid
+    // fighting a natural loop wraparound (near-end leader vs near-start laggard).
+    videos.forEach((video) => {
+      if (
+        video.readyState < 2 ||
+        video.paused ||
+        !Number.isFinite(video.currentTime)
+      ) {
+        return
+      }
+      const drift = leaderTime - video.currentTime
+      if (drift > VIDEO_SYNC_TOLERANCE_SECONDS && drift < VIDEO_LOOP_WRAP_GUARD_SECONDS) {
+        try {
+          video.currentTime = leaderTime
+        } catch {
+          // Ignore seek races while media is still hydrating.
+        }
+      }
+    })
+  })
+  syncRafHandle = requestAnimationFrame(runSyncPass)
+}
+
+const ensureSyncLoop = () => {
+  if (syncRafHandle !== null || syncedVideoRegistry.size === 0) {
+    return
+  }
+  syncRafHandle = requestAnimationFrame(runSyncPass)
+}
+
+const maybeStopSyncLoop = () => {
+  if (syncRafHandle !== null && syncedVideoRegistry.size === 0) {
+    cancelAnimationFrame(syncRafHandle)
+    syncRafHandle = null
+  }
+}
+
+const registerSyncedVideo = (src: string, video: HTMLVideoElement): (() => void) => {
+  let set = syncedVideoRegistry.get(src)
+  if (!set) {
+    set = new Set()
+    syncedVideoRegistry.set(src, set)
+  }
+  set.add(video)
+  ensureSyncLoop()
+
+  return () => {
+    const current = syncedVideoRegistry.get(src)
+    if (current) {
+      current.delete(video)
+      if (current.size === 0) {
+        syncedVideoRegistry.delete(src)
+      }
+    }
+    maybeStopSyncLoop()
+  }
+}
+
+// Read the best seed time for a freshly mounted video: prefer any living peer
+// that has already decoded metadata, fall back to the per-card persisted time,
+// otherwise return 0 (natural start).
+const readSyncSeedTime = (src: string | undefined, fallback: number): number => {
+  if (!src) {
+    return fallback
+  }
+  const peers = syncedVideoRegistry.get(src)
+  if (!peers) {
+    return fallback
+  }
+  let peerLeaderTime = -Infinity
+  peers.forEach((video) => {
+    if (
+      video.readyState >= 2 &&
+      Number.isFinite(video.currentTime) &&
+      video.currentTime > peerLeaderTime
+    ) {
+      peerLeaderTime = video.currentTime
+    }
+  })
+  return peerLeaderTime > 0 ? peerLeaderTime : fallback
 }
 
 function BeatCardComponent({
@@ -123,8 +241,6 @@ function BeatCardComponent({
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [shouldLoadVideo, setShouldLoadVideo] = useState(!hasVideo)
-
-  // Minimal mode: VanillaTilt is intentionally disabled for static and precise interactions.
 
   useEffect(() => {
     if (!hasVideo || shouldLoadVideo) {
@@ -187,32 +303,32 @@ function BeatCardComponent({
       return
     }
 
+    // On close: pause the audio player only. Do NOT reset video time or
+    // persistedVideoTimeRef: the remounted grid video must re-join the sibling
+    // pool at the current master frame, not at 0, to avoid a visible desync.
     audioRef.current?.pause()
-    persistedVideoTimeRef.current = 0
-    persistedVideoWasPlayingRef.current = false
-
-    if (visualVideoRef.current) {
-      try {
-        visualVideoRef.current.currentTime = 0
-      } catch {
-        // Ignore in-flight media reset errors.
-      }
-    }
   }, [isActive])
 
   useLayoutEffect(() => {
     const visualizerVideo = visualVideoRef.current
 
-    if (!visualizerVideo || persistedVideoTimeRef.current <= 0) {
+    if (!visualizerVideo) {
+      return
+    }
+
+    // Synchronous-after-commit safety seek. rAF will continue snapping the
+    // video to the leader every frame once it is playing.
+    const seed = readSyncSeedTime(videoSrc, persistedVideoTimeRef.current)
+    if (seed <= 0) {
       return
     }
 
     try {
-      visualizerVideo.currentTime = persistedVideoTimeRef.current
+      visualizerVideo.currentTime = seed
     } catch {
       // Ignore seek races if the browser has not prepared enough data yet.
     }
-  }, [isActive, shouldLoadVideo])
+  }, [isActive, shouldLoadVideo, videoSrc])
 
   useEffect(() => {
     const visualizerVideo = visualVideoRef.current
@@ -221,24 +337,15 @@ function BeatCardComponent({
       return
     }
 
-    if (persistedVideoTimeRef.current > 0.01) {
-      const drift = Math.abs(visualizerVideo.currentTime - persistedVideoTimeRef.current)
-
-      if (drift > 0.12) {
-        try {
-          visualizerVideo.currentTime = persistedVideoTimeRef.current
-        } catch {
-          // Ignore seek races while metadata is still loading.
-        }
-      }
-    }
-
+    // Resume playback if the browser paused the element (e.g. visibility change)
+    // or if autoplay was blocked momentarily. The rAF loop owns frame-accurate
+    // time alignment; we only handle the play-state recovery here.
     if (persistedVideoWasPlayingRef.current && visualizerVideo.paused) {
       void visualizerVideo.play().catch(() => {
         persistedVideoWasPlayingRef.current = false
       })
     }
-  }, [isActive, shouldLoadVideo])
+  }, [isActive, shouldLoadVideo, videoSrc])
 
   const {
     textPrimary,
@@ -249,7 +356,7 @@ function BeatCardComponent({
     licenseNameTypographyStyle,
     licenseDescriptionTypographyStyle,
     overlayOpacityNormalized,
-    cardInteractiveStyle,
+    cardMaterialStyle,
     licensePanelStyle,
     licenseCardStyle,
     visualizerFallbackBlur,
@@ -264,21 +371,14 @@ function BeatCardComponent({
     const overlayOpacityPercent = theme.overlayOpacity <= 1 ? theme.overlayOpacity * 100 : theme.overlayOpacity
     const nextOverlayOpacityNormalized = Math.min(1, Math.max(0, overlayOpacityPercent / 100))
 
+    // Base card material: stable across the isActive toggle so Framer Motion's
+    // FLIP animation and sibling cards never recompute this block on open/close.
+    // The dynamic boxShadow is applied at the JSX call site via a ternary.
     const cardMaterial: CSSProperties = {
       background: 'rgba(255,255,255,0.40)',
       backdropFilter: `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
       WebkitBackdropFilter: `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
       border: '1px solid rgba(255,255,255,0.58)',
-      boxShadow: '0 8px 30px rgba(0,0,0,0.08)',
-    }
-
-    const cardInteractive: CSSProperties = {
-      ...cardMaterial,
-      ...(isActive
-        ? {
-            boxShadow: '0 10px 34px rgba(0,0,0,0.1)',
-          }
-        : null),
     }
 
     const nextLicensePanelStyle: CSSProperties = {
@@ -352,7 +452,7 @@ function BeatCardComponent({
       licenseNameTypographyStyle: nextLicenseNameTypographyStyle,
       licenseDescriptionTypographyStyle: nextLicenseDescriptionTypographyStyle,
       overlayOpacityNormalized: nextOverlayOpacityNormalized,
-      cardInteractiveStyle: cardInteractive,
+      cardMaterialStyle: cardMaterial,
       licensePanelStyle: nextLicensePanelStyle,
       licenseCardStyle: nextLicenseCardStyle,
       visualizerFallbackBlur: nextVisualizerFallbackBlur,
@@ -362,13 +462,18 @@ function BeatCardComponent({
     }
   }, [
     hasVideo,
-    isActive,
     theme.boxBlur,
     theme.fontFamily,
     theme.fontWeight,
     theme.overlayOpacity,
     theme.textColor,
   ])
+
+  // Dynamic elevation applied per render-branch; kept out of the memo so the
+  // isActive flip never invalidates the expensive style block above.
+  const cardElevationShadow = isActive
+    ? '0 10px 34px rgba(0,0,0,0.1)'
+    : '0 8px 30px rgba(0,0,0,0.08)'
 
   const editableFieldClassName =
     'mt-1 w-full rounded-xl border border-transparent bg-transparent px-1 py-0.5 text-[0.98rem] outline-none transition focus:border-[var(--editable-focus)] focus:bg-black/[0.04]'
@@ -604,13 +709,30 @@ function BeatCardComponent({
             ref={(el) => {
               visualVideoRef.current = el
 
-              if (el && persistedVideoTimeRef.current > 0) {
+              if (!el) {
+                return
+              }
+
+              // On fresh mount (FLIP remount when the modal opens/closes), seed
+              // the new video from the furthest-advanced living peer so it joins
+              // the pool at the current frame, not at 0. rAF will hold the line
+              // every frame thereafter.
+              const seed = readSyncSeedTime(videoSrc, persistedVideoTimeRef.current)
+              if (seed > 0) {
                 try {
-                  el.currentTime = persistedVideoTimeRef.current
+                  el.currentTime = seed
                 } catch {
                   // Ignore callback ref races during node hydration.
                 }
               }
+
+              // React 19 callback-ref cleanup: unregister from the sync registry
+              // when this element unmounts (so peers only correct against live
+              // decoders).
+              if (!videoSrc) {
+                return
+              }
+              return registerSyncedVideo(videoSrc, el)
             }}
             className="absolute inset-0 h-full w-full object-cover"
             style={{
@@ -625,6 +747,9 @@ function BeatCardComponent({
             playsInline
             preload="auto"
             onTimeUpdate={(event) => {
+              // Persist time per-card so that a remounted instance has a valid
+              // fallback if no peers are currently registered (e.g. navigating
+              // to a page where only this card exists).
               persistedVideoTimeRef.current = event.currentTarget.currentTime
             }}
             onPlay={() => {
@@ -723,7 +848,8 @@ function BeatCardComponent({
           }}
           className="relative w-full cursor-pointer overflow-hidden rounded-2xl border p-4 text-left"
           style={{
-            ...cardInteractiveStyle,
+            ...cardMaterialStyle,
+            boxShadow: cardElevationShadow,
             ...gpuTransformStyle,
           }}
           aria-pressed={isActive}
@@ -776,7 +902,8 @@ function BeatCardComponent({
                     layoutId={cardLayoutId}
                     className={`relative w-full overflow-hidden rounded-2xl border p-4 sm:p-4 ${showExpandedDetails ? 'md:w-[52%]' : ''}`}
                     style={{
-                      ...cardInteractiveStyle,
+                      ...cardMaterialStyle,
+                      boxShadow: cardElevationShadow,
                       ...gpuTransformStyle,
                     }}
                     transition={appleSpring}

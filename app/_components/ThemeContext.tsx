@@ -38,7 +38,7 @@ export const defaultTheme: ThemeState = {
   textColor: '#111827',
   fontFamily: 'Helvetica Neue, Helvetica, Arial, sans-serif',
   fontWeight: 300,
-  expandedOverlayColor: '#2B3A42',
+  expandedOverlayColor: '#111827',
   overlayOpacity: 0.85,
   boxBlur: 20,
   boxOpacity: 4,

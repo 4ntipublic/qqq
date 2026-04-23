@@ -1,12 +1,23 @@
 'use client'
 
 import { LayoutGroup } from 'framer-motion'
+import Link from 'next/link'
 import { useCallback, useMemo, useState, type CSSProperties } from 'react'
 import BeatCard, { type BeatCardTheme, type BeatCartPayload } from './BeatCard'
 import CartBubble from './CartBubble'
 import { ThemeProvider, useThemeCustomizer } from './ThemeContext'
 import ThemeCustomizer from './ThemeCustomizer'
 import { rgbaFromHex } from './themeColor'
+
+type DashboardSceneProps = {
+  title: string
+  showCatalogLink: boolean
+}
+
+type DashboardClientProps = {
+  title?: string
+  showCatalogLink?: boolean
+}
 
 const beats = [
   {
@@ -35,7 +46,7 @@ const beats = [
   },
 ]
 
-function DashboardScene() {
+function DashboardScene({ title, showCatalogLink }: DashboardSceneProps) {
   const [activeBeatId, setActiveBeatId] = useState<string | null>(null)
   const [cartItems, setCartItems] = useState<BeatCartPayload[]>([])
   const { theme } = useThemeCustomizer()
@@ -56,26 +67,18 @@ function DashboardScene() {
 
   const beatCardTheme = useMemo<BeatCardTheme>(
     () => ({
-      accentColor: theme.accentColor,
       textColor: theme.textColor,
       fontFamily: theme.fontFamily,
       fontWeight: theme.fontWeight,
-      boxColor: theme.boxColor,
       boxBlur: theme.boxBlur,
-      boxOpacity: theme.boxOpacity,
-      boxShadowOpacity: theme.boxShadowOpacity,
       expandedOverlayColor: theme.expandedOverlayColor,
       overlayOpacity: theme.overlayOpacity,
     }),
     [
-      theme.accentColor,
       theme.textColor,
       theme.fontFamily,
       theme.fontWeight,
-      theme.boxColor,
       theme.boxBlur,
-      theme.boxOpacity,
-      theme.boxShadowOpacity,
       theme.expandedOverlayColor,
       theme.overlayOpacity,
     ]
@@ -108,7 +111,7 @@ function DashboardScene() {
               className="mx-auto [font-family:var(--global-font)] text-[clamp(3.2rem,8vw,5.8rem)] font-[var(--global-weight)] leading-[0.9] tracking-[var(--global-heading-tracking)]"
               style={{ color: headingColor }}
             >
-              akpkyy
+              {title}
             </h1>
           </header>
 
@@ -139,24 +142,29 @@ function DashboardScene() {
             })}
           </section>
 
-          <div className="mt-6 flex w-full max-w-[1200px] justify-center">
-            <a
-              href="https://akpkyy.com/beats"
-              className="rounded-xl border border-black/15 bg-white/10 px-5 py-2 text-[0.84rem] font-light tracking-[0.02em] text-slate-800"
-            >
-              Ver catálogo completo
-            </a>
-          </div>
+          {showCatalogLink ? (
+            <div className="mt-6 flex w-full max-w-[1200px] justify-center">
+              <Link
+                href="/beats"
+                className="rounded-xl border border-black/15 bg-white/10 px-5 py-2 text-[0.84rem] font-light tracking-[0.02em] text-slate-800"
+              >
+                Ver catálogo completo
+              </Link>
+            </div>
+          ) : null}
         </div>
       </LayoutGroup>
     </>
   )
 }
 
-export default function DashboardClient() {
+export default function DashboardClient({
+  title = 'akpkyy',
+  showCatalogLink = true,
+}: DashboardClientProps = {}) {
   return (
     <ThemeProvider>
-      <DashboardScene />
+      <DashboardScene title={title} showCatalogLink={showCatalogLink} />
     </ThemeProvider>
   )
 }

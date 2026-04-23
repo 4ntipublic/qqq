@@ -18,10 +18,10 @@ const normalizeHex = (hex: string): string => {
     return cleaned
   }
 
-  return 'fef08a'
+  return '6b7280'
 }
 
-export const hexToRgb = (hex: string): RGBChannels => {
+const hexToRgb = (hex: string): RGBChannels => {
   const normalized = normalizeHex(hex)
 
   return {
@@ -36,11 +36,4 @@ export const rgbaFromHex = (hex: string, alpha: number): string => {
   const safeAlpha = Math.max(0, Math.min(1, alpha))
 
   return `rgba(${r}, ${g}, ${b}, ${safeAlpha})`
-}
-
-export const shadeHex = (hex: string, intensity: number): string => {
-  const { r, g, b } = hexToRgb(hex)
-  const safeIntensity = Math.max(0, Math.min(1, intensity))
-
-  return `rgb(${Math.round(r * safeIntensity)}, ${Math.round(g * safeIntensity)}, ${Math.round(b * safeIntensity)})`
 }

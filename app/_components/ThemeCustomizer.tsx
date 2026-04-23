@@ -7,6 +7,19 @@ import { rgbaFromHex } from './themeColor'
 const rangeClassName =
   'mt-2 h-1.5 w-full cursor-pointer appearance-none rounded-full bg-[rgba(255,255,255,0.14)] outline-none transition hover:bg-[rgba(255,255,255,0.22)] [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border [&::-webkit-slider-thumb]:border-white/40 [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-[0_0_0_2px_rgba(0,0,0,0.3)] [&::-moz-range-thumb]:h-3 [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border [&::-moz-range-thumb]:border-white/40 [&::-moz-range-thumb]:bg-white'
 
+// Monochromatic palette. Blindada a blancos, grises y negros para preservar
+// la filosofia 'Function over Form'. Orden de claro -> oscuro.
+const MONO_PALETTE = [
+  '#ffffff',
+  '#f3f4f6',
+  '#d4d4d8',
+  '#9ca3af',
+  '#6b7280',
+  '#374151',
+  '#111827',
+  '#000000',
+] as const
+
 type SectionTitleProps = {
   title: string
   color: string
@@ -17,6 +30,39 @@ function SectionTitle({ title, color }: SectionTitleProps) {
     <p className="[font-family:var(--font-body)] text-[0.68rem] font-semibold tracking-[0.16em]" style={{ color }}>
       {title}
     </p>
+  )
+}
+
+type MonoSwatchPickerProps = {
+  value: string
+  onSelect: (hex: string) => void
+  ariaLabel: string
+}
+
+function MonoSwatchPicker({ value, onSelect, ariaLabel }: MonoSwatchPickerProps) {
+  const normalized = value.toLowerCase()
+  return (
+    <div className="mt-2 flex items-center justify-between gap-1" role="radiogroup" aria-label={ariaLabel}>
+      {MONO_PALETTE.map((hex) => {
+        const isSelected = hex.toLowerCase() === normalized
+        return (
+          <button
+            type="button"
+            key={hex}
+            role="radio"
+            aria-checked={isSelected}
+            aria-label={hex}
+            onClick={() => onSelect(hex)}
+            className={`h-5 w-5 rounded-full border transition ${
+              isSelected
+                ? 'border-white ring-2 ring-white/70 ring-offset-1 ring-offset-black/40'
+                : 'border-white/30 hover:border-white/60'
+            }`}
+            style={{ backgroundColor: hex }}
+          />
+        )
+      })}
+    </div>
   )
 }
 
@@ -163,61 +209,49 @@ export default function ThemeCustomizer() {
               <SectionTitle title="[ COLORES ]" color={sectionTitleColor} />
 
               <div className="mt-3 space-y-2.5">
-                <label className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(255,255,255,0.08)] px-3 py-2">
+                <div className="block rounded-xl border border-[rgba(255,255,255,0.08)] px-3 py-2">
                   <span className="[font-family:var(--font-body)] text-[0.75rem] font-semibold uppercase tracking-[0.1em]" style={{ color: panelMutedTextColor }}>
                     Color Tarjetas
                   </span>
-                  <input
-                    type="color"
+                  <MonoSwatchPicker
                     value={draftTheme.boxColor}
-                    onChange={(event) => updateDraftTheme('boxColor', event.target.value)}
-                    className="h-8 w-10 cursor-pointer rounded-md border p-0"
-                    style={inputColorStyle}
-                    aria-label="Color del tinte de tarjetas"
+                    onSelect={(hex) => updateDraftTheme('boxColor', hex)}
+                    ariaLabel="Color del tinte de tarjetas"
                   />
-                </label>
+                </div>
 
-                <label className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(255,255,255,0.08)] px-3 py-2">
+                <div className="block rounded-xl border border-[rgba(255,255,255,0.08)] px-3 py-2">
                   <span className="[font-family:var(--font-body)] text-[0.75rem] font-semibold uppercase tracking-[0.1em]" style={{ color: panelMutedTextColor }}>
                     Color de Acentos
                   </span>
-                  <input
-                    type="color"
+                  <MonoSwatchPicker
                     value={draftTheme.accentColor}
-                    onChange={(event) => updateDraftTheme('accentColor', event.target.value)}
-                    className="h-8 w-10 cursor-pointer rounded-md border p-0"
-                    style={inputColorStyle}
-                    aria-label="Color de acentos"
+                    onSelect={(hex) => updateDraftTheme('accentColor', hex)}
+                    ariaLabel="Color de acentos"
                   />
-                </label>
+                </div>
 
-                <label className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(255,255,255,0.08)] px-3 py-2">
+                <div className="block rounded-xl border border-[rgba(255,255,255,0.08)] px-3 py-2">
                   <span className="[font-family:var(--font-body)] text-[0.75rem] font-semibold uppercase tracking-[0.1em]" style={{ color: panelMutedTextColor }}>
                     Color de Textos
                   </span>
-                  <input
-                    type="color"
+                  <MonoSwatchPicker
                     value={draftTheme.textColor}
-                    onChange={(event) => updateDraftTheme('textColor', event.target.value)}
-                    className="h-8 w-10 cursor-pointer rounded-md border p-0"
-                    style={inputColorStyle}
-                    aria-label="Color de textos"
+                    onSelect={(hex) => updateDraftTheme('textColor', hex)}
+                    ariaLabel="Color de textos"
                   />
-                </label>
+                </div>
 
-                <label className="flex items-center justify-between gap-3 rounded-xl border border-[rgba(255,255,255,0.08)] px-3 py-2">
+                <div className="block rounded-xl border border-[rgba(255,255,255,0.08)] px-3 py-2">
                   <span className="[font-family:var(--font-body)] text-[0.75rem] font-semibold uppercase tracking-[0.1em]" style={{ color: panelMutedTextColor }}>
                     Overlay Fondo Expandido
                   </span>
-                  <input
-                    type="color"
+                  <MonoSwatchPicker
                     value={draftTheme.expandedOverlayColor}
-                    onChange={(event) => updateDraftTheme('expandedOverlayColor', event.target.value)}
-                    className="h-8 w-10 cursor-pointer rounded-md border p-0"
-                    style={inputColorStyle}
-                    aria-label="Color del overlay expandido"
+                    onSelect={(hex) => updateDraftTheme('expandedOverlayColor', hex)}
+                    ariaLabel="Color del overlay expandido"
                   />
-                </label>
+                </div>
 
                 <label className="block rounded-xl border border-[rgba(255,255,255,0.08)] px-3 py-2">
                   <div className="flex items-center justify-between">
