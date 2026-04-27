@@ -1,0 +1,28 @@
+import 'server-only'
+import { createClient as createJsClient, type SupabaseClient } from '@supabase/supabase-js'
+
+// Admin client (service-role). Bypasses RLS — **NEVER** import from a client
+// component or ship this module to the browser. The `server-only` marker at
+// the top will throw at build time if it accidentally leaks into a client
+// bundle.
+let cached: SupabaseClient | null = null
+
+export function createAdminClient(): SupabaseClient {
+  if (cached) return cached
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!url || !serviceKey) {
+    throw new Error(
+      'Missing Supabase env vars: set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.'
+    )
+  }
+
+  cached = createJsClient(url, serviceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  })
+  return cached
+}
