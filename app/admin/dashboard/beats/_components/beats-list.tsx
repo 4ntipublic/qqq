@@ -1,10 +1,12 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
-import { Music2, Search } from 'lucide-react'
+import { Loader2, Music2, Search, Trash2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { deleteBeatAction } from '../actions'
 import {
   Card,
   CardContent,
@@ -53,6 +55,26 @@ function getBeatBadge(beat: Beat): {
 export function BeatsList({ beats, categories }: BeatsListProps) {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [, startTransition] = useTransition()
+
+  const handleDelete = (beat: Beat) => {
+    if (deletingId) return
+    const confirmed = window.confirm(
+      `¿Borrar "${beat.title}"?\nSe eliminarán también los archivos de audio y video del bucket. Esta acción no se puede deshacer.`
+    )
+    if (!confirmed) return
+    setDeletingId(beat.id)
+    setDeleteError(null)
+    startTransition(async () => {
+      const res = await deleteBeatAction(beat.id)
+      if (!res.ok) {
+        setDeleteError(res.error ?? 'No se pudo borrar el beat.')
+      }
+      setDeletingId(null)
+    })
+  }
 
   const categoryById = useMemo(() => {
     const map = new Map<string, Category>()
@@ -114,15 +136,18 @@ export function BeatsList({ beats, categories }: BeatsListProps) {
             }
           />
         ) : (
-          <div className="rounded-xl border border-border">
+          <div className="overflow-x-auto rounded-xl border border-border">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Título</TableHead>
                   <TableHead>BPM</TableHead>
+                  <TableHead>Tono</TableHead>
                   <TableHead>Categoría</TableHead>
                   <TableHead>Drop</TableHead>
+                  <TableHead className="text-right">Peso</TableHead>
                   <TableHead>Estado</TableHead>
+                  <TableHead className="w-[1%]" aria-label="Acciones" />
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -137,7 +162,10 @@ export function BeatsList({ beats, categories }: BeatsListProps) {
                         <div className="flex flex-col gap-0.5">
                           <span className="font-light text-foreground">{beat.title}</span>
                           {beat.audioUrl ? (
-                            <span className="truncate text-xs font-light text-muted-foreground">
+                            <span
+                              title={beat.audioUrl}
+                              className="block max-w-[280px] truncate text-xs font-light text-muted-foreground"
+                            >
                               {beat.audioUrl}
                             </span>
                           ) : null}
@@ -147,6 +175,9 @@ export function BeatsList({ beats, categories }: BeatsListProps) {
                         {beat.bpm}
                       </TableCell>
                       <TableCell className="text-foreground">
+                        {beat.key || '—'}
+                      </TableCell>
+                      <TableCell className="text-foreground">
                         {category ? category.name : '—'}
                       </TableCell>
                       <TableCell className="text-muted-foreground">
@@ -154,8 +185,29 @@ export function BeatsList({ beats, categories }: BeatsListProps) {
                           ? format(new Date(beat.releaseDate), 'PP', { locale: es })
                           : '—'}
                       </TableCell>
+                      <TableCell className="text-right font-helvetica text-sm font-light tabular-nums text-foreground">
+                        {beat.sizeMb !== null && Number.isFinite(beat.sizeMb)
+                          ? `${beat.sizeMb.toFixed(2)} MB`
+                          : '—'}
+                      </TableCell>
                       <TableCell>
                         <Badge variant={badge.variant}>{badge.label}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Borrar ${beat.title}`}
+                          disabled={deletingId === beat.id}
+                          onClick={() => handleDelete(beat)}
+                        >
+                          {deletingId === beat.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
+                        </Button>
                       </TableCell>
                     </TableRow>
                   )
@@ -195,6 +247,14 @@ export function BeatsList({ beats, categories }: BeatsListProps) {
               </PaginationItem>
             </PaginationContent>
           </Pagination>
+        ) : null}
+        {deleteError ? (
+          <p
+            role="alert"
+            className="rounded-xl border border-border bg-muted px-3 py-2 text-xs font-light text-foreground"
+          >
+            {deleteError}
+          </p>
         ) : null}
       </CardContent>
     </Card>

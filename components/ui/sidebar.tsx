@@ -190,7 +190,7 @@ export function SidebarShell({ title, items, profile, children }: SidebarShellPr
           </form>
         </header>
 
-        <main className="flex-1 bg-background">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-hidden bg-background">{children}</main>
       </div>
     </div>
   )

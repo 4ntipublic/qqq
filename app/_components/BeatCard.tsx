@@ -2,6 +2,7 @@
 
 import { AnimatePresence, motion } from 'framer-motion'
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import { rgbaFromHex } from './themeColor'
 
 type LicenseOption = {
@@ -72,6 +73,7 @@ type BeatCardProps = {
   genre: string
   tone: string
   videoSrc?: string
+  audioSrc?: string
   theme: BeatCardTheme
   isActive: boolean
   onSelect: (beatId: string) => void
@@ -88,16 +90,6 @@ const appleSpring = {
   bounce: 0,
 }
 
-// ============================================================================
-// Cross-instance video sync (frame-accurate)
-// ============================================================================
-// Every <motion.video> that shares the same src registers itself here. A single
-// requestAnimationFrame loop runs at refresh-rate (~60Hz) and snaps any laggard
-// video whose currentTime is behind the leader by more than
-// VIDEO_SYNC_TOLERANCE_SECONDS. This replaces the previous onTimeUpdate-based
-// master clock which was both throttled (~250ms) and prone to leader oscillation,
-// leaving up to 0.2s residual offsets visible after a FLIP remount.
-
 const syncedVideoRegistry = new Map<string, Set<HTMLVideoElement>>()
 const VIDEO_SYNC_TOLERANCE_SECONDS = 0.08
 const VIDEO_LOOP_WRAP_GUARD_SECONDS = 1.5
@@ -110,8 +102,6 @@ const runSyncPass = () => {
       return
     }
 
-    // Elect the leader: the furthest-advanced video that is actually playing
-    // and has decoded metadata. Ignore elements that just (re)mounted.
     let leaderTime = -Infinity
     videos.forEach((video) => {
       if (
@@ -128,8 +118,6 @@ const runSyncPass = () => {
       return
     }
 
-    // Snap any laggard forward. Skip gaps larger than LOOP_WRAP_GUARD to avoid
-    // fighting a natural loop wraparound (near-end leader vs near-start laggard).
     videos.forEach((video) => {
       if (
         video.readyState < 2 ||
@@ -142,9 +130,7 @@ const runSyncPass = () => {
       if (drift > VIDEO_SYNC_TOLERANCE_SECONDS && drift < VIDEO_LOOP_WRAP_GUARD_SECONDS) {
         try {
           video.currentTime = leaderTime
-        } catch {
-          // Ignore seek races while media is still hydrating.
-        }
+        } catch {}
       }
     })
   })
@@ -186,9 +172,6 @@ const registerSyncedVideo = (src: string, video: HTMLVideoElement): (() => void)
   }
 }
 
-// Read the best seed time for a freshly mounted video: prefer any living peer
-// that has already decoded metadata, fall back to the per-card persisted time,
-// otherwise return 0 (natural start).
 const readSyncSeedTime = (src: string | undefined, fallback: number): number => {
   if (!src) {
     return fallback
@@ -217,6 +200,7 @@ function BeatCardComponent({
   genre,
   tone,
   videoSrc,
+  audioSrc,
   theme,
   isActive,
   onSelect,
@@ -231,16 +215,17 @@ function BeatCardComponent({
   const cardLayoutId = `beat-card-${beatId}`
   const visualizerLayoutId = `beat-visualizer-${beatId}`
   const visualizerMediaLayoutId = `beat-visualizer-media-${beatId}`
-  const hasVideo = Boolean(videoSrc)
+  const isImageVisualizer = Boolean(videoSrc) && /\.(webp|png|jpe?g|gif|avif|bmp)(\?.*)?$/i.test(videoSrc ?? '')
+  const hasVideo = Boolean(videoSrc) && !isImageVisualizer
+  const hasMedia = Boolean(videoSrc)
 
-  const [editableBpm, setEditableBpm] = useState(bpm)
-  const [editableGenre, setEditableGenre] = useState(genre)
-  const [editableTone, setEditableTone] = useState(tone)
   const [showExpandedDetails, setShowExpandedDetails] = useState(false)
-  const [isPlaying, setIsPlaying] = useState(false)
   const [duration, setDuration] = useState(0)
   const [currentTime, setCurrentTime] = useState(0)
   const [shouldLoadVideo, setShouldLoadVideo] = useState(!hasVideo)
+
+  const seekTrackRef = useRef<HTMLDivElement | null>(null)
+  const isSeekingRef = useRef(false)
 
   useEffect(() => {
     if (!hasVideo || shouldLoadVideo) {
@@ -285,7 +270,6 @@ function BeatCardComponent({
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setShowExpandedDetails(false)
-        setIsPlaying(false)
         onCloseExpansion()
       }
     }
@@ -299,15 +283,68 @@ function BeatCardComponent({
   }, [isActive, onCloseExpansion])
 
   useEffect(() => {
+    const audio = audioRef.current
+    const video = visualVideoRef.current
+
     if (isActive) {
-      return
+      let cancelled = false
+      const timeouts: ReturnType<typeof setTimeout>[] = []
+
+      const tryPlayAudio = (attempt = 0) => {
+        if (cancelled) return
+        if (!audioSrc) return
+        const a = audioRef.current
+        if (!a) {
+          if (attempt < 15) {
+            timeouts.push(setTimeout(() => tryPlayAudio(attempt + 1), 40))
+          }
+          return
+        }
+        try {
+          a.currentTime = 0
+        } catch {}
+        a.volume = 1
+        a.muted = false
+        a.play().catch(() => {})
+      }
+
+      const tryPlayVideo = (attempt = 0) => {
+        if (cancelled) return
+        const v = visualVideoRef.current
+        if (!v) {
+          if (attempt < 15) {
+            timeouts.push(setTimeout(() => tryPlayVideo(attempt + 1), 40))
+          }
+          return
+        }
+        v.play().catch(() => {})
+      }
+
+      timeouts.push(setTimeout(() => tryPlayVideo(), 16))
+      timeouts.push(setTimeout(() => tryPlayAudio(), 16))
+
+      return () => {
+        cancelled = true
+        timeouts.forEach(clearTimeout)
+      }
     }
 
-    // On close: pause the audio player only. Do NOT reset video time or
-    // persistedVideoTimeRef: the remounted grid video must re-join the sibling
-    // pool at the current master frame, not at 0, to avoid a visible desync.
-    audioRef.current?.pause()
-  }, [isActive])
+    if (audio) {
+      audio.pause()
+      try {
+        audio.currentTime = 0
+      } catch {}
+    }
+    setCurrentTime(0)
+
+    if (video) {
+      try {
+        video.currentTime = 0
+      } catch {}
+      persistedVideoTimeRef.current = 0
+      void video.play().catch(() => {})
+    }
+  }, [isActive, audioSrc])
 
   useLayoutEffect(() => {
     const visualizerVideo = visualVideoRef.current
@@ -316,8 +353,6 @@ function BeatCardComponent({
       return
     }
 
-    // Synchronous-after-commit safety seek. rAF will continue snapping the
-    // video to the leader every frame once it is playing.
     const seed = readSyncSeedTime(videoSrc, persistedVideoTimeRef.current)
     if (seed <= 0) {
       return
@@ -325,9 +360,7 @@ function BeatCardComponent({
 
     try {
       visualizerVideo.currentTime = seed
-    } catch {
-      // Ignore seek races if the browser has not prepared enough data yet.
-    }
+    } catch {}
   }, [isActive, shouldLoadVideo, videoSrc])
 
   useEffect(() => {
@@ -337,9 +370,6 @@ function BeatCardComponent({
       return
     }
 
-    // Resume playback if the browser paused the element (e.g. visibility change)
-    // or if autoplay was blocked momentarily. The rAF loop owns frame-accurate
-    // time alignment; we only handle the play-state recovery here.
     if (persistedVideoWasPlayingRef.current && visualizerVideo.paused) {
       void visualizerVideo.play().catch(() => {
         persistedVideoWasPlayingRef.current = false
@@ -353,6 +383,7 @@ function BeatCardComponent({
     specDotColor,
     titleTypographyStyle,
     specLabelTypographyStyle,
+    specValueTypographyStyle,
     licenseNameTypographyStyle,
     licenseDescriptionTypographyStyle,
     overlayOpacityNormalized,
@@ -362,62 +393,47 @@ function BeatCardComponent({
     visualizerFallbackBlur,
     visualizerStyle,
     metadataPanelStyle,
-    editableInputStyle,
   } = useMemo(() => {
     const nextTextPrimary = rgbaFromHex(theme.textColor, 0.94)
-    const nextTextSecondary = rgbaFromHex(theme.textColor, 0.78)
-    const nextTextMuted = rgbaFromHex(theme.textColor, 0.62)
+    const nextTextSecondary = rgbaFromHex(theme.textColor, 0.82)
+    const nextTextMuted = rgbaFromHex(theme.textColor, 0.58)
     const useHelveticaTracking = theme.fontFamily.toLowerCase().includes('helvetica')
     const overlayOpacityPercent = theme.overlayOpacity <= 1 ? theme.overlayOpacity * 100 : theme.overlayOpacity
     const nextOverlayOpacityNormalized = Math.min(1, Math.max(0, overlayOpacityPercent / 100))
 
-    // Base card material: stable across the isActive toggle so Framer Motion's
-    // FLIP animation and sibling cards never recompute this block on open/close.
-    // The dynamic boxShadow is applied at the JSX call site via a ternary.
+    const heavyBlurPx = Math.max(28, theme.boxBlur * 1.4)
+    const mediumBlurPx = Math.max(20, theme.boxBlur * 1.0)
+
     const cardMaterial: CSSProperties = {
-      background: 'rgba(255,255,255,0.40)',
-      backdropFilter: `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
-      WebkitBackdropFilter: `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
-      border: '1px solid rgba(255,255,255,0.58)',
+      background: 'rgba(255,255,255,0.10)',
+      backdropFilter: `blur(${heavyBlurPx}px) saturate(160%)`,
+      WebkitBackdropFilter: `blur(${heavyBlurPx}px) saturate(160%)`,
     }
 
     const nextLicensePanelStyle: CSSProperties = {
-      background: 'rgba(255,255,255,0.42)',
-      backdropFilter: `blur(${Math.max(16, theme.boxBlur)}px)`,
-      WebkitBackdropFilter: `blur(${Math.max(16, theme.boxBlur)}px)`,
-      border: '1px solid rgba(255,255,255,0.6)',
-      boxShadow: '0 8px 30px rgba(0,0,0,0.08)',
+      background: 'rgba(255,255,255,0.10)',
+      backdropFilter: `blur(${heavyBlurPx}px) saturate(160%)`,
+      WebkitBackdropFilter: `blur(${heavyBlurPx}px) saturate(160%)`,
     }
 
     const nextLicenseCardStyle: CSSProperties = {
-      background: 'rgba(255,255,255,0.4)',
-      border: '1px solid rgba(255,255,255,0.58)',
-      boxShadow: '0 6px 18px rgba(0,0,0,0.06)',
-      backdropFilter: 'blur(12px)',
-      WebkitBackdropFilter: 'blur(12px)',
+      background: 'rgba(255,255,255,0.08)',
+      backdropFilter: `blur(${mediumBlurPx}px) saturate(150%)`,
+      WebkitBackdropFilter: `blur(${mediumBlurPx}px) saturate(150%)`,
     }
 
     const nextVisualizerFallbackBlur = `blur(${Math.max(6, theme.boxBlur * 0.35).toFixed(1)}px)`
 
     const nextVisualizerStyle: CSSProperties = {
-      backgroundColor: 'rgba(255,255,255,0.38)',
-      backdropFilter: hasVideo ? 'saturate(108%)' : `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
-      WebkitBackdropFilter: hasVideo ? 'saturate(108%)' : `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
+      backgroundColor: 'rgba(255,255,255,0.06)',
+      backdropFilter: hasMedia ? 'saturate(110%)' : `blur(${mediumBlurPx}px)`,
+      WebkitBackdropFilter: hasMedia ? 'saturate(110%)' : `blur(${mediumBlurPx}px)`,
     }
 
     const nextMetadataPanelStyle: CSSProperties = {
-      backgroundColor: 'rgba(255,255,255,0.40)',
-      backdropFilter: `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
-      WebkitBackdropFilter: `blur(${Math.max(12, theme.boxBlur * 0.7)}px)`,
-    }
-
-    const nextEditableInputStyle: CSSProperties = {
-      color: nextTextSecondary,
-      caretColor: 'rgba(17,24,39,0.84)',
-      ['--editable-focus' as string]: 'rgba(17,24,39,0.24)',
-      fontFamily: theme.fontFamily,
-      fontWeight: theme.fontWeight,
-      letterSpacing: useHelveticaTracking ? '0.005em' : '0.01em',
+      background: 'rgba(255,255,255,0.10)',
+      backdropFilter: `blur(${heavyBlurPx}px) saturate(160%)`,
+      WebkitBackdropFilter: `blur(${heavyBlurPx}px) saturate(160%)`,
     }
 
     const nextTitleTypographyStyle: CSSProperties = {
@@ -430,6 +446,13 @@ function BeatCardComponent({
       fontFamily: theme.fontFamily,
       fontWeight: theme.fontWeight,
       letterSpacing: useHelveticaTracking ? '0.08em' : '0.1em',
+    }
+
+    const nextSpecValueTypographyStyle: CSSProperties = {
+      fontFamily: theme.fontFamily,
+      fontWeight: theme.fontWeight,
+      letterSpacing: useHelveticaTracking ? '0.005em' : '0.01em',
+      color: nextTextSecondary,
     }
 
     const nextLicenseNameTypographyStyle: CSSProperties = {
@@ -449,6 +472,7 @@ function BeatCardComponent({
       specDotColor: 'rgba(31,41,55,0.46)',
       titleTypographyStyle: nextTitleTypographyStyle,
       specLabelTypographyStyle: nextSpecLabelTypographyStyle,
+      specValueTypographyStyle: nextSpecValueTypographyStyle,
       licenseNameTypographyStyle: nextLicenseNameTypographyStyle,
       licenseDescriptionTypographyStyle: nextLicenseDescriptionTypographyStyle,
       overlayOpacityNormalized: nextOverlayOpacityNormalized,
@@ -458,10 +482,9 @@ function BeatCardComponent({
       visualizerFallbackBlur: nextVisualizerFallbackBlur,
       visualizerStyle: nextVisualizerStyle,
       metadataPanelStyle: nextMetadataPanelStyle,
-      editableInputStyle: nextEditableInputStyle,
     }
   }, [
-    hasVideo,
+    hasMedia,
     theme.boxBlur,
     theme.fontFamily,
     theme.fontWeight,
@@ -469,14 +492,14 @@ function BeatCardComponent({
     theme.textColor,
   ])
 
-  // Dynamic elevation applied per render-branch; kept out of the memo so the
-  // isActive flip never invalidates the expensive style block above.
   const cardElevationShadow = isActive
-    ? '0 10px 34px rgba(0,0,0,0.1)'
-    : '0 8px 30px rgba(0,0,0,0.08)'
+    ? '0 24px 60px -12px rgba(0,0,0,0.25), 0 8px 24px -8px rgba(0,0,0,0.12)'
+    : '0 12px 36px -10px rgba(0,0,0,0.18), 0 4px 14px -4px rgba(0,0,0,0.08)'
 
-  const editableFieldClassName =
-    'mt-1 w-full rounded-xl border border-transparent bg-transparent px-1 py-0.5 text-[0.98rem] outline-none transition focus:border-[var(--editable-focus)] focus:bg-black/[0.04]'
+  const [portalReady, setPortalReady] = useState(false)
+  useEffect(() => {
+    setPortalReady(true)
+  }, [])
 
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0
   const gpuTransformStyle = useMemo<CSSProperties>(
@@ -498,38 +521,43 @@ function BeatCardComponent({
   }
 
   const handleCloseExpansion = () => {
-    setIsPlaying(false)
     setShowExpandedDetails(false)
     onCloseExpansion()
   }
 
-  const handleTogglePlayback = async () => {
-    if (!audioRef.current) {
-      return
-    }
-
-    if (audioRef.current.paused) {
-      try {
-        await audioRef.current.play()
-        setIsPlaying(true)
-      } catch {
-        setIsPlaying(false)
-      }
-      return
-    }
-
-    audioRef.current.pause()
-    setIsPlaying(false)
+  const seekToClientX = (clientX: number) => {
+    const track = seekTrackRef.current
+    const audio = audioRef.current
+    if (!track || !audio || duration <= 0) return
+    const rect = track.getBoundingClientRect()
+    if (rect.width <= 0) return
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+    const nextTime = ratio * duration
+    try {
+      audio.currentTime = nextTime
+    } catch {}
+    setCurrentTime(nextTime)
   }
 
-  const handleSeek = (nextPercent: number) => {
-    if (!audioRef.current || duration <= 0) {
-      return
-    }
+  const handleTrackPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    event.stopPropagation()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    isSeekingRef.current = true
+    seekToClientX(event.clientX)
+  }
 
-    const nextTime = (nextPercent / 100) * duration
-    audioRef.current.currentTime = nextTime
-    setCurrentTime(nextTime)
+  const handleTrackPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isSeekingRef.current) return
+    event.stopPropagation()
+    seekToClientX(event.clientX)
+  }
+
+  const handleTrackPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isSeekingRef.current) return
+    isSeekingRef.current = false
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    } catch {}
   }
 
   const handleAddLicenseToCart = (license: LicenseOption) => {
@@ -544,66 +572,71 @@ function BeatCardComponent({
 
   const renderPlayerPanel = () => (
     <>
-      <audio
-        ref={audioRef}
-        preload="metadata"
-        onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
-        onPause={() => setIsPlaying(false)}
-        onEnded={() => setIsPlaying(false)}
-      >
-        <source src={videoSrc ?? '/assets/sentfck.mp4'} type="audio/mp4" />
-      </audio>
+      {audioSrc ? (
+        <audio
+          ref={audioRef}
+          src={audioSrc}
+          crossOrigin="anonymous"
+          preload="metadata"
+          onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
+          onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime || 0)}
+        />
+      ) : null}
 
       <div
-        className="rounded-xl border border-white/60 px-4 py-3 shadow-[0_8px_30px_rgba(0,0,0,0.08)]"
+        className="rounded-xl px-5 py-4"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
         role="group"
         style={metadataPanelStyle}
       >
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation()
-              void handleTogglePlayback()
-            }}
-            onKeyDown={(event) => event.stopPropagation()}
-            className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-slate-700/20 bg-black/5 px-3 [font-family:var(--font-body)] text-[0.7rem] font-semibold uppercase tracking-[0.08em] text-slate-700"
-          >
-            {isPlaying ? 'Pause' : 'Play'}
-          </button>
+        <div
+          ref={seekTrackRef}
+          role="slider"
+          aria-label="Posición del audio"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(progressPercent)}
+          tabIndex={0}
+          onPointerDown={handleTrackPointerDown}
+          onPointerMove={handleTrackPointerMove}
+          onPointerUp={handleTrackPointerUp}
+          onPointerCancel={handleTrackPointerUp}
+          className="group relative flex h-7 w-full cursor-pointer touch-none select-none items-center"
+        >
+          <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-black/15" />
+          <div
+            className="absolute left-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-black/75 transition-[height] group-hover:h-[5px]"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
 
-          <div className="flex-1">
-            <input
-              type="range"
-              min={0}
-              max={100}
-              step={0.1}
-              value={progressPercent}
-              onChange={(event) => {
-                event.stopPropagation()
-                handleSeek(Number(event.target.value))
-              }}
-              onClick={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-              className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-black/10 accent-slate-700"
-              aria-label="Posicion del audio"
-            />
-          </div>
-
-          <p className="[font-family:var(--font-body)] text-[0.72rem] font-semibold text-slate-700/90">
-            {formatTime(currentTime)} / {formatTime(duration)}
-          </p>
+        <div className="mt-2 flex items-center justify-between [font-family:var(--font-body)] text-[0.7rem] font-medium tabular-nums text-slate-700/80">
+          <span>{formatTime(currentTime)}</span>
+          <span>{formatTime(duration)}</span>
         </div>
       </div>
     </>
   )
 
+  const renderSpec = (label: string, value: string) => (
+    <div className="flex flex-col gap-1 px-3 py-2 sm:px-0 sm:py-0">
+      <p
+        className="flex items-center gap-2 [font-family:var(--font-body)] text-[0.64rem] font-semibold uppercase tracking-[0.12em]"
+        style={{ ...specLabelTypographyStyle, color: textMuted }}
+      >
+        <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: specDotColor }} />
+        {label}
+      </p>
+      <p className="[font-family:var(--font-body)] text-[0.98rem]" style={specValueTypographyStyle}>
+        {value || '—'}
+      </p>
+    </div>
+  )
+
   const renderMetadataPanel = () => (
     <div
-      className="rounded-xl border border-white/60 px-5 py-4 shadow-[0_8px_30px_rgba(0,0,0,0.08)]"
+      className="rounded-xl px-5 py-4"
       onClick={(event) => event.stopPropagation()}
       onKeyDown={(event) => event.stopPropagation()}
       role="group"
@@ -611,98 +644,48 @@ function BeatCardComponent({
     >
       <h2
         className="[font-family:var(--font-title)] text-[clamp(1.55rem,2.8vw,2rem)] font-extrabold leading-[1.1] tracking-[0.02em]"
-        style={{
-          ...titleTypographyStyle,
-          color: textPrimary,
-        }}
+        style={{ ...titleTypographyStyle, color: textPrimary }}
       >
         {title}
       </h2>
 
-      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:divide-x sm:divide-black/[0.08]">
-        <div className="rounded-xl bg-black/[0.02] px-3 py-2 sm:rounded-none sm:bg-transparent sm:px-0 sm:py-0 sm:pr-3">
-          <p
-            className="flex items-center gap-2 [font-family:var(--font-body)] text-[0.64rem] font-semibold uppercase tracking-[0.12em]"
-            style={{
-              ...specLabelTypographyStyle,
-              color: textMuted,
-            }}
-          >
-            <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: specDotColor }} />
-            BPM
-          </p>
-          <input
-            value={editableBpm}
-            onChange={(event) => setEditableBpm(event.target.value)}
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            className={editableFieldClassName}
-            style={editableInputStyle}
-            aria-label="Editar BPM"
-          />
-        </div>
-
-        <div className="rounded-xl bg-black/[0.02] px-3 py-2 sm:rounded-none sm:bg-transparent sm:px-3 sm:py-0">
-          <p
-            className="flex items-center gap-2 [font-family:var(--font-body)] text-[0.64rem] font-semibold uppercase tracking-[0.12em]"
-            style={{
-              ...specLabelTypographyStyle,
-              color: textMuted,
-            }}
-          >
-            <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: specDotColor }} />
-            Genero
-          </p>
-          <input
-            value={editableGenre}
-            onChange={(event) => setEditableGenre(event.target.value)}
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            className={editableFieldClassName}
-            style={editableInputStyle}
-            aria-label="Editar genero"
-          />
-        </div>
-
-        <div className="rounded-xl bg-black/[0.02] px-3 py-2 sm:rounded-none sm:bg-transparent sm:px-3 sm:py-0">
-          <p
-            className="flex items-center gap-2 [font-family:var(--font-body)] text-[0.64rem] font-semibold uppercase tracking-[0.12em]"
-            style={{
-              ...specLabelTypographyStyle,
-              color: textMuted,
-            }}
-          >
-            <span className="h-[6px] w-[6px] rounded-full" style={{ backgroundColor: specDotColor }} />
-            Tono
-          </p>
-          <input
-            value={editableTone}
-            onChange={(event) => setEditableTone(event.target.value)}
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => event.stopPropagation()}
-            className={editableFieldClassName}
-            style={editableInputStyle}
-            aria-label="Editar tono"
-          />
-        </div>
+      <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-black/[0.08]">
+        {renderSpec('BPM', bpm)}
+        {renderSpec('Genero', genre)}
+        {renderSpec('Tono', tone)}
       </div>
     </div>
   )
 
   const renderCardVisual = (showPlayer: boolean) => (
-    <div className="relative flex flex-col gap-4">
+    <div className="relative flex flex-col gap-4 overflow-hidden">
       <motion.div
         layout
         layoutId={visualizerLayoutId}
         ref={visualizerRef}
-        className="relative min-h-[190px] overflow-hidden rounded-xl border border-white/60 shadow-[0_8px_30px_rgba(0,0,0,0.08)]"
+        className={`relative overflow-hidden rounded-xl shadow-[0_12px_36px_-10px_rgba(0,0,0,0.18)] ${
+          showPlayer ? 'min-h-[300px] sm:min-h-[340px]' : 'min-h-[190px]'
+        }`}
         style={{
           ...visualizerStyle,
           borderRadius: 16,
         }}
         transition={appleSpring}
       >
-        {hasVideo && shouldLoadVideo ? (
+        {isImageVisualizer ? (
+          <motion.img
+            layout
+            layoutId={visualizerMediaLayoutId}
+            src={videoSrc}
+            alt={`${title} cover art`}
+            decoding="async"
+            loading="lazy"
+            draggable={false}
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{ borderRadius: 16, objectFit: 'cover', width: '100%', height: '100%' }}
+            transition={appleSpring}
+          />
+        ) : hasVideo && shouldLoadVideo ? (
           <motion.video
             layout
             layoutId={visualizerMediaLayoutId}
@@ -713,27 +696,20 @@ function BeatCardComponent({
                 return
               }
 
-              // On fresh mount (FLIP remount when the modal opens/closes), seed
-              // the new video from the furthest-advanced living peer so it joins
-              // the pool at the current frame, not at 0. rAF will hold the line
-              // every frame thereafter.
               const seed = readSyncSeedTime(videoSrc, persistedVideoTimeRef.current)
               if (seed > 0) {
                 try {
                   el.currentTime = seed
-                } catch {
-                  // Ignore callback ref races during node hydration.
-                }
+                } catch {}
               }
 
-              // React 19 callback-ref cleanup: unregister from the sync registry
-              // when this element unmounts (so peers only correct against live
-              // decoders).
               if (!videoSrc) {
                 return
               }
               return registerSyncedVideo(videoSrc, el)
             }}
+            src={videoSrc ?? undefined}
+            crossOrigin="anonymous"
             className="absolute inset-0 h-full w-full object-cover"
             style={{
               borderRadius: 16,
@@ -747,9 +723,6 @@ function BeatCardComponent({
             playsInline
             preload="auto"
             onTimeUpdate={(event) => {
-              // Persist time per-card so that a remounted instance has a valid
-              // fallback if no peers are currently registered (e.g. navigating
-              // to a page where only this card exists).
               persistedVideoTimeRef.current = event.currentTarget.currentTime
             }}
             onPlay={() => {
@@ -759,9 +732,7 @@ function BeatCardComponent({
               persistedVideoWasPlayingRef.current = false
             }}
             transition={appleSpring}
-          >
-            <source src={videoSrc} type="video/mp4" />
-          </motion.video>
+          />
         ) : hasVideo ? (
           <motion.div
             layout
@@ -828,48 +799,15 @@ function BeatCardComponent({
     </div>
   )
 
-  return (
-    <>
-      {!isActive ? (
-        <motion.div
-          layoutId={cardLayoutId}
-          role="button"
-          tabIndex={0}
-          onClick={handleOpenExpansion}
-          onKeyDown={(event) => {
-            if (event.target !== event.currentTarget) {
-              return
-            }
-
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault()
-              handleOpenExpansion()
-            }
-          }}
-          className="relative w-full cursor-pointer overflow-hidden rounded-2xl border p-4 text-left"
-          style={{
-            ...cardMaterialStyle,
-            boxShadow: cardElevationShadow,
-            ...gpuTransformStyle,
-          }}
-          aria-pressed={isActive}
-          transition={appleSpring}
-        >
-          {renderCardVisual(false)}
-        </motion.div>
-      ) : null}
-
-      <AnimatePresence>
+  const expandedOverlay = (
+    <AnimatePresence>
         {isActive ? (
           <motion.div className="fixed inset-0 z-40" onClick={handleCloseExpansion} role="presentation">
             <motion.div
-              className="absolute inset-0 backdrop-blur-xl"
-              style={{
-                ...gpuOpacityStyle,
-                backgroundColor: theme.expandedOverlayColor,
-              }}
+              className="absolute inset-0 bg-black/60 backdrop-blur-md"
+              style={gpuOpacityStyle}
               initial={{ opacity: 0 }}
-              animate={{ opacity: overlayOpacityNormalized }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.08, ease: quickEase }}
             />
@@ -885,11 +823,11 @@ function BeatCardComponent({
               >
                 <button
                   type="button"
-                  className="absolute right-2 top-2 z-[2] inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/45 bg-black/15 text-slate-700"
+                  className="absolute right-3 top-3 z-[2] inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-black/45 text-white/90 backdrop-blur-md transition hover:bg-black/60"
                   onClick={handleCloseExpansion}
                   aria-label="Cerrar vista expandida"
                 >
-                  <span className="text-lg leading-none">x</span>
+                  <span className="text-base leading-none">×</span>
                 </button>
 
                 <motion.div
@@ -900,7 +838,7 @@ function BeatCardComponent({
                 >
                   <motion.div
                     layoutId={cardLayoutId}
-                    className={`relative w-full overflow-hidden rounded-2xl border p-4 sm:p-4 ${showExpandedDetails ? 'md:w-[52%]' : ''}`}
+                    className={`relative w-full overflow-hidden rounded-3xl border-none p-4 sm:p-4 ${showExpandedDetails ? 'md:w-[52%]' : ''}`}
                     style={{
                       ...cardMaterialStyle,
                       boxShadow: cardElevationShadow,
@@ -925,9 +863,10 @@ function BeatCardComponent({
                           exit={{ opacity: 0, transition: { duration: 0.05 } }}
                         >
                           <motion.aside
-                            className="relative w-full overflow-hidden rounded-xl border p-4"
+                            className="relative w-full overflow-hidden rounded-3xl border-none p-4"
                             style={{
                               ...licensePanelStyle,
+                              boxShadow: cardElevationShadow,
                               ...gpuTransformStyle,
                             }}
                           >
@@ -949,7 +888,7 @@ function BeatCardComponent({
 
                               <div className="mt-4 grid grid-cols-1 gap-3">
                                 {LICENSE_OPTIONS.map((license) => (
-                                  <article key={license.id} className="rounded-xl p-4" style={licenseCardStyle}>
+                                  <article key={license.id} className="rounded-xl border-none p-4" style={licenseCardStyle}>
                                     <div className="flex items-start justify-between gap-3">
                                       <h5
                                         className="[font-family:var(--font-title)] text-[1.25rem] font-extrabold leading-[1.05] text-slate-900/95"
@@ -972,7 +911,7 @@ function BeatCardComponent({
                                     <button
                                       type="button"
                                       onClick={() => handleAddLicenseToCart(license)}
-                                      className="mt-3 inline-flex w-full items-center justify-center rounded-xl border border-slate-700/20 bg-black/5 px-3 py-2 [font-family:var(--font-body)] text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-slate-800"
+                                      className="mt-3 inline-flex w-full items-center justify-center rounded-xl border-none bg-black/10 px-3 py-2 [font-family:var(--font-body)] text-[0.72rem] font-semibold uppercase tracking-[0.12em] text-slate-800 transition hover:bg-black/15"
                                     >
                                       Anadir al carrito
                                     </button>
@@ -991,6 +930,40 @@ function BeatCardComponent({
           </motion.div>
         ) : null}
       </AnimatePresence>
+  )
+
+  return (
+    <>
+      {!isActive ? (
+        <motion.div
+          layoutId={cardLayoutId}
+          role="button"
+          tabIndex={0}
+          onClick={handleOpenExpansion}
+          onKeyDown={(event) => {
+            if (event.target !== event.currentTarget) {
+              return
+            }
+
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault()
+              handleOpenExpansion()
+            }
+          }}
+          className="relative w-full cursor-pointer overflow-hidden rounded-2xl border-none p-4 text-left"
+          style={{
+            ...cardMaterialStyle,
+            boxShadow: cardElevationShadow,
+            ...gpuTransformStyle,
+          }}
+          aria-pressed={isActive}
+          transition={appleSpring}
+        >
+          {renderCardVisual(false)}
+        </motion.div>
+      ) : null}
+
+      {portalReady ? createPortal(expandedOverlay, document.body) : null}
     </>
   )
 }
@@ -1003,6 +976,7 @@ function areBeatCardPropsEqual(previousProps: BeatCardProps, nextProps: BeatCard
     previousProps.genre === nextProps.genre &&
     previousProps.tone === nextProps.tone &&
     previousProps.videoSrc === nextProps.videoSrc &&
+    previousProps.audioSrc === nextProps.audioSrc &&
     previousProps.theme === nextProps.theme &&
     previousProps.isActive === nextProps.isActive &&
     previousProps.onSelect === nextProps.onSelect &&

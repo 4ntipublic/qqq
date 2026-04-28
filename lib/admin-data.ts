@@ -1,6 +1,3 @@
-// Shared types + utilities for the admin panel.
-// Supabase rows are mapped to these domain types at the data-access boundary
-// (see lib/admin-queries.ts).
 
 export interface Category {
   id: string
@@ -13,12 +10,14 @@ export interface Beat {
   id: string
   title: string
   bpm: number
+  key: string | null
   categoryId: string | null
   videoUrl: string | null
   audioUrl: string | null
   isVisible: boolean
   releaseDate: string | null
   createdAt: string
+  sizeMb: number | null
 }
 
 export interface Sale {

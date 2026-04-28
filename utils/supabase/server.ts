@@ -1,9 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 
-// Server-side Supabase client for Server Components, Server Actions and Route
-// Handlers. Binds the auth cookie store via next/headers so the session is
-// preserved across requests.
 export async function createClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY

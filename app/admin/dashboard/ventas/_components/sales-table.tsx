@@ -81,7 +81,6 @@ export function SalesTable({ initialSales }: SalesTableProps) {
   const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE)
 
   const pageNumbers = useMemo(() => {
-    // Compact pagination: 1 … (p-1) p (p+1) … last
     const nums: Array<number | 'ellipsis'> = []
     if (totalPages <= 5) {
       for (let i = 1; i <= totalPages; i++) nums.push(i)
@@ -150,7 +149,7 @@ export function SalesTable({ initialSales }: SalesTableProps) {
             description="Probá ajustar la búsqueda o el filtro de estado."
           />
         ) : (
-          <div className="rounded-xl border border-border">
+          <div className="overflow-x-auto rounded-xl border border-border">
             <Table>
               <TableHeader>
                 <TableRow>

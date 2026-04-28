@@ -1,6 +1,3 @@
-// Real schema typing aligned with the live Supabase tables.
-// `is_visible` replaces the old `status` enum for beats.
-// `sales.method` and `sales.amount` are the exact column names.
 
 export interface Database {
   public: {
@@ -36,6 +33,7 @@ export interface Database {
           is_visible: boolean
           release_date: string | null
           created_at: string
+          size_mb: number | null
         }
         Insert: {
           id?: string
@@ -47,6 +45,7 @@ export interface Database {
           is_visible?: boolean
           release_date?: string | null
           created_at?: string
+          size_mb?: number | null
         }
         Update: {
           id?: string
@@ -58,6 +57,7 @@ export interface Database {
           is_visible?: boolean
           release_date?: string | null
           created_at?: string
+          size_mb?: number | null
         }
       }
       sales: {

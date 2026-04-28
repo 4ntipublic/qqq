@@ -2,10 +2,6 @@ import 'server-only'
 import type { User } from '@supabase/supabase-js'
 import { createClient } from '@/utils/supabase/server'
 
-// The admin panel uses a single hardcoded admin identity mapped to a real
-// Supabase Auth user. The UX still accepts the historical username
-// `pivbleantipuvlicpky`, but Supabase needs an email, so we internally alias
-// it to ADMIN_EMAIL.
 export const ADMIN_USERNAME = 'pivbleantipuvlicpky'
 export const ADMIN_EMAIL = 'admin@akpkyy.com'
 
@@ -13,7 +9,6 @@ export function resolveAdminEmail(identifier: string): string {
   const value = identifier.trim()
   if (!value) return value
   if (value.includes('@')) return value.toLowerCase()
-  // Accept the hardcoded username in either case.
   if (value.toLowerCase() === ADMIN_USERNAME.toLowerCase()) return ADMIN_EMAIL
   return value.toLowerCase()
 }

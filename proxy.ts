@@ -1,10 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { updateSession } from '@/utils/supabase/middleware'
 
-// Proxy (formerly middleware in Next 15) guards /admin using the real
-// Supabase session. Unauthenticated visitors are bounced to /admin/login with
-// a `from` hint; authenticated visitors hitting /admin/login are pushed into
-// the dashboard.
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl
   const { response, user } = await updateSession(request)

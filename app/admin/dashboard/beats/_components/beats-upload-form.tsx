@@ -6,13 +6,13 @@ import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
 import { DatePicker } from '@/components/ui/date-picker'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Progress } from '@/components/ui/progress'
 import {
   Select,
   SelectContent,
@@ -22,29 +22,47 @@ import {
 } from '@/components/ui/select'
 import { Slider } from '@/components/ui/slider'
 import type { Category } from '@/lib/admin-data'
-import { createClient } from '@/utils/supabase/client'
+import { convertImageToWebp } from '@/lib/image-to-webp'
+import { transcodeAudioToMp3 } from '@/lib/transcoder'
 import { createBeatAction } from '../actions'
+import { getR2UploadUrl, type R2UploadFolder } from '../r2-actions'
 
-const STORAGE_BUCKET = 'beats-media'
-const AUDIO_ACCEPT = '.wav,.mp3,audio/wav,audio/mpeg,audio/mp3,audio/x-wav'
-const VIDEO_ACCEPT = '.webm,.mp4,video/webm,video/mp4'
-const AUDIO_EXT = /\.(wav|mp3)$/i
-const VIDEO_EXT = /\.(webm|mp4)$/i
+const MUSICAL_KEYS = [
+  'C Major', 'C Minor',
+  'C# Major', 'C# Minor',
+  'D Major', 'D Minor',
+  'D# Major', 'D# Minor',
+  'E Major', 'E Minor',
+  'F Major', 'F Minor',
+  'F# Major', 'F# Minor',
+  'G Major', 'G Minor',
+  'G# Major', 'G# Minor',
+  'A Major', 'A Minor',
+  'A# Major', 'A# Minor',
+  'B Major', 'B Minor',
+] as const
+const AUDIO_ACCEPT = 'audio/*'
+const VISUALIZER_ACCEPT = 'video/*,image/*,image/gif'
+const IMAGE_EXT = /\.(png|jpe?g|gif|bmp|webp|avif|tiff?)$/i
+const VIDEO_EXT = /\.(mp4|mov|webm|mkv|avi|m4v|ogv)$/i
+const GIF_EXT = /\.gif$/i
 
-type Phase = 'idle' | 'uploading' | 'saving'
+type Phase =
+  | 'idle'
+  | 'transcoding-audio'
+  | 'converting-image'
+  | 'uploading'
+  | 'saving'
+
+type VisualizerKind = 'image' | 'video'
 
 interface BeatsUploadFormProps {
   categories: Category[]
 }
 
-function sanitizeFileName(name: string): string {
-  // Keep alphanumerics, dots, dashes and underscores; replace the rest.
-  return name.replace(/[^\w.\-]+/g, '_').replace(/_+/g, '_').slice(0, 100)
-}
-
-function buildStoragePath(folder: 'audio' | 'video', file: File): string {
-  const clean = sanitizeFileName(file.name)
-  return `${folder}/${Date.now()}-${clean}`
+function extractExtension(name: string): string {
+  const match = name.match(/\.[a-z0-9]+$/i)
+  return match ? match[0].slice(1).toLowerCase() : ''
 }
 
 function humanFileSize(bytes: number): string {
@@ -62,9 +80,13 @@ function humanFileSize(bytes: number): string {
 export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
   const [title, setTitle] = useState('')
   const [bpm, setBpm] = useState<number>(140)
+  const [musicalKey, setMusicalKey] = useState<string>('')
   const [categoryId, setCategoryId] = useState<string>('')
   const [audioFile, setAudioFile] = useState<File | null>(null)
-  const [videoFile, setVideoFile] = useState<File | null>(null)
+  const [visualizerFile, setVisualizerFile] = useState<File | null>(null)
+  const [visualizerKind, setVisualizerKind] = useState<VisualizerKind | null>(null)
+  const [progress, setProgress] = useState(0)
+  const [optimizedSizeMb, setOptimizedSizeMb] = useState<number | null>(null)
   const [releaseDate, setReleaseDate] = useState<Date | undefined>(undefined)
   const [isVisible, setIsVisible] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -73,7 +95,7 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
   const [isPending, startTransition] = useTransition()
 
   const audioInputRef = useRef<HTMLInputElement | null>(null)
-  const videoInputRef = useRef<HTMLInputElement | null>(null)
+  const visualizerInputRef = useRef<HTMLInputElement | null>(null)
 
   const minDate = useMemo(() => {
     const d = new Date()
@@ -93,19 +115,23 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
   const resetForm = () => {
     setTitle('')
     setBpm(140)
+    setMusicalKey('')
     setCategoryId('')
     setAudioFile(null)
-    setVideoFile(null)
+    setVisualizerFile(null)
+    setVisualizerKind(null)
+    setProgress(0)
+    setOptimizedSizeMb(null)
     setReleaseDate(undefined)
     setIsVisible(false)
     if (audioInputRef.current) audioInputRef.current.value = ''
-    if (videoInputRef.current) videoInputRef.current.value = ''
+    if (visualizerInputRef.current) visualizerInputRef.current.value = ''
   }
 
   const handleAudioChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null
-    if (file && !AUDIO_EXT.test(file.name)) {
-      setError('El audio debe ser .wav o .mp3.')
+    if (file && !file.type.startsWith('audio/')) {
+      setError('Subí un archivo de audio (cualquier formato común).')
       setAudioFile(null)
       event.target.value = ''
       return
@@ -114,39 +140,73 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
     setAudioFile(file)
   }
 
-  const handleVideoChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVisualizerChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null
-    if (file && !VIDEO_EXT.test(file.name)) {
-      setError('El video debe ser .webm o .mp4.')
-      setVideoFile(null)
+    if (!file) {
+      setVisualizerFile(null)
+      setVisualizerKind(null)
+      return
+    }
+    const isImage = file.type.startsWith('image/') || IMAGE_EXT.test(file.name)
+    const isVideo = file.type.startsWith('video/') || VIDEO_EXT.test(file.name)
+    if (!isImage && !isVideo) {
+      setError('El visualizer debe ser un video o una imagen.')
+      setVisualizerFile(null)
+      setVisualizerKind(null)
       event.target.value = ''
       return
     }
     setError(null)
-    setVideoFile(file)
+    setVisualizerFile(file)
+    setVisualizerKind(isImage ? 'image' : 'video')
   }
+
+  const putToR2 = (file: File, uploadUrl: string, contentType: string, onProgress: (ratio: number) => void): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('PUT', uploadUrl, true)
+      xhr.setRequestHeader('Content-Type', contentType)
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          onProgress(Math.max(0, Math.min(1, event.loaded / event.total)))
+        }
+      }
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress(1)
+          resolve()
+        } else {
+          reject(new Error(`R2 PUT falló con status ${xhr.status}: ${xhr.responseText || xhr.statusText}`))
+        }
+      }
+      xhr.onerror = () =>
+        reject(
+          new Error(
+            'Error de red durante el upload a R2. Causa más común: la CORS policy del bucket no permite PUT desde este origen. Revisá Cloudflare Dashboard → R2 → tu bucket → Settings → CORS Policy.',
+          ),
+        )
+      xhr.onabort = () => reject(new Error('Upload a R2 cancelado.'))
+      xhr.send(file)
+    })
 
   const uploadFile = async (
     file: File,
-    folder: 'audio' | 'video'
+    folder: R2UploadFolder,
+    onProgress: (ratio: number) => void,
   ): Promise<string> => {
-    const supabase = createClient()
-    const path = buildStoragePath(folder, file)
-    const { error: uploadError } = await supabase.storage
-      .from(STORAGE_BUCKET)
-      .upload(path, file, {
-        cacheControl: '3600',
-        contentType: file.type || undefined,
-        upsert: false,
-      })
-    if (uploadError) {
-      throw new Error(`Storage (${folder}): ${uploadError.message}`)
+    const ext = extractExtension(file.name)
+    if (!ext) {
+      throw new Error(`No se pudo determinar la extensión del archivo (${folder}).`)
     }
-    const { data } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(path)
-    if (!data?.publicUrl) {
-      throw new Error(`No se pudo obtener URL pública del ${folder}.`)
+    const contentType = file.type || 'application/octet-stream'
+
+    const presigned = await getR2UploadUrl({ folder, contentType, ext })
+    if (!presigned.ok || !presigned.uploadUrl || !presigned.publicUrl) {
+      throw new Error(`R2 (${folder}): ${presigned.error ?? 'no se pudo firmar el upload.'}`)
     }
-    return data.publicUrl
+
+    await putToR2(file, presigned.uploadUrl, contentType, onProgress)
+    return presigned.publicUrl
   }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -154,29 +214,106 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
     if (!canSubmit) return
     setError(null)
     setSuccessTitle(null)
+    setProgress(0)
+    setOptimizedSizeMb(null)
 
     try {
       let audioUrl: string | null = null
       let videoUrl: string | null = null
 
-      if (audioFile || videoFile) {
+      let audioReady: File | null = null
+      if (audioFile) {
+        setPhase('transcoding-audio')
+        setProgress(0)
+        try {
+          audioReady = await transcodeAudioToMp3(audioFile, (ratio) => {
+            setProgress(Math.round(ratio * 100))
+          })
+        } catch (transcodeErr) {
+          setError(
+            `No se pudo convertir el audio a MP3, se subirá el archivo original. Detalle: ${
+              transcodeErr instanceof Error ? transcodeErr.message : String(transcodeErr)
+            }`
+          )
+          audioReady = audioFile
+        }
+      }
+
+      let visualizerReady: File | null = null
+      let visualizerFolder: 'image' | 'video' = 'video'
+      if (visualizerFile) {
+        if (visualizerKind === 'image') {
+          visualizerFolder = 'image'
+          const isGif = GIF_EXT.test(visualizerFile.name) || visualizerFile.type === 'image/gif'
+          if (isGif) {
+            visualizerReady = visualizerFile
+          } else {
+            setPhase('converting-image')
+            setProgress(0)
+            try {
+              visualizerReady = await convertImageToWebp(visualizerFile)
+            } catch (imgErr) {
+              setError(
+                `No se pudo convertir la imagen a WebP, se subirá el archivo original. Detalle: ${
+                  imgErr instanceof Error ? imgErr.message : String(imgErr)
+                }`
+              )
+              visualizerReady = visualizerFile
+            }
+            setProgress(100)
+          }
+        } else {
+          visualizerReady = visualizerFile
+          visualizerFolder = 'video'
+        }
+      }
+
+      const totalBytes =
+        (audioReady?.size ?? 0) + (visualizerReady?.size ?? 0)
+      const totalMb = totalBytes / (1024 * 1024)
+      const roundedMb =
+        totalBytes > 0 ? Number(totalMb.toFixed(2)) : null
+      setOptimizedSizeMb(roundedMb)
+
+      if (audioReady || visualizerReady) {
         setPhase('uploading')
+        setProgress(0)
+
+        const totalSize =
+          (audioReady?.size ?? 0) + (visualizerReady?.size ?? 0)
+        let audioLoaded = 0
+        let visualizerLoaded = 0
+        const updateAggregateProgress = () => {
+          if (totalSize <= 0) return
+          const ratio = (audioLoaded + visualizerLoaded) / totalSize
+          setProgress(Math.round(Math.max(0, Math.min(1, ratio)) * 100))
+        }
+
         const jobs: Promise<void>[] = []
-        if (audioFile) {
+        if (audioReady) {
+          const file = audioReady
           jobs.push(
-            uploadFile(audioFile, 'audio').then((url) => {
+            uploadFile(file, 'audio', (ratio) => {
+              audioLoaded = ratio * file.size
+              updateAggregateProgress()
+            }).then((url) => {
               audioUrl = url
-            })
+            }),
           )
         }
-        if (videoFile) {
+        if (visualizerReady) {
+          const file = visualizerReady
           jobs.push(
-            uploadFile(videoFile, 'video').then((url) => {
+            uploadFile(file, visualizerFolder, (ratio) => {
+              visualizerLoaded = ratio * file.size
+              updateAggregateProgress()
+            }).then((url) => {
               videoUrl = url
-            })
+            }),
           )
         }
         await Promise.all(jobs)
+        setProgress(100)
       }
 
       setPhase('saving')
@@ -184,11 +321,13 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
         const result = await createBeatAction({
           title,
           bpm,
+          key: musicalKey || null,
           categoryId: categoryId || null,
           videoUrl,
           audioUrl,
           releaseDate: releaseDate ? releaseDate.toISOString() : null,
           isVisible,
+          sizeMb: roundedMb,
         })
 
         if (!result.ok) {
@@ -200,29 +339,42 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
         setSuccessTitle(title.trim())
         resetForm()
         setPhase('idle')
+        setProgress(0)
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Error desconocido al subir.'
+      const message =
+        err instanceof Error
+          ? `Falló la subida: ${err.message}`
+          : 'Falló la subida por un error desconocido.'
       setError(message)
       setPhase('idle')
     }
   }
 
   const buttonLabel = () => {
-    if (phase === 'uploading') return 'Subiendo archivos…'
-    if (phase === 'saving' || isPending) return 'Guardando en DB…'
-    return 'Publicar beat'
+    switch (phase) {
+      case 'transcoding-audio':
+        return `Convirtiendo audio a MP3… ${progress}%`
+      case 'converting-image':
+        return 'Convirtiendo imagen a WebP…'
+      case 'uploading':
+        return `Subiendo a R2… ${progress}%`
+      case 'saving':
+        return 'Guardando en DB…'
+      default:
+        return isPending ? 'Guardando en DB…' : 'Publicar beat'
+    }
   }
+
+  const showProgress =
+    phase === 'transcoding-audio' ||
+    phase === 'converting-image' ||
+    phase === 'uploading'
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Subir beat</CardTitle>
-        <CardDescription>
-          Archivos de audio (.wav / .mp3) y video (.webm / .mp4) suben directo al bucket
-          <span className="font-mono"> beats-media</span>. Las URLs públicas se guardan en la
-          tabla <span className="font-mono">beats</span>.
-        </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
@@ -261,6 +413,22 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
           </div>
 
           <div className="flex flex-col gap-2">
+            <Label htmlFor="beat-key">Tono / Key</Label>
+            <Select value={musicalKey} onValueChange={setMusicalKey} disabled={isBusy}>
+              <SelectTrigger id="beat-key">
+                <SelectValue placeholder="Sin tono (opcional)" />
+              </SelectTrigger>
+              <SelectContent>
+                {MUSICAL_KEYS.map((k) => (
+                  <SelectItem key={k} value={k}>
+                    {k}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex flex-col gap-2">
             <Label htmlFor="beat-category">Categoría</Label>
             <Select value={categoryId} onValueChange={setCategoryId} disabled={isBusy}>
               <SelectTrigger id="beat-category">
@@ -284,7 +452,7 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
 
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-2">
-              <Label htmlFor="beat-audio-file">Audio (.wav / .mp3)</Label>
+              <Label htmlFor="beat-audio-file">Audio</Label>
               <input
                 ref={audioInputRef}
                 id="beat-audio-file"
@@ -294,26 +462,33 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
                 disabled={isBusy}
                 className="block w-full cursor-pointer rounded-xl border border-border bg-background px-3 py-2 text-sm font-light text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-foreground file:px-3 file:py-1.5 file:text-xs file:font-light file:text-background hover:file:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
               />
+              <span className="text-[11px] font-light text-muted-foreground">
+                Cualquier formato · se convierte a MP3 128kbps en el navegador.
+              </span>
               {audioFile ? (
-                <span className="truncate text-[11px] font-light text-muted-foreground">
+                <span className="truncate text-[11px] font-light text-foreground">
                   {audioFile.name} · {humanFileSize(audioFile.size)}
                 </span>
               ) : null}
             </div>
             <div className="flex flex-col gap-2">
-              <Label htmlFor="beat-video-file">Video (.webm / .mp4)</Label>
+              <Label htmlFor="beat-visualizer-file">Visualizer (video o imagen)</Label>
               <input
-                ref={videoInputRef}
-                id="beat-video-file"
+                ref={visualizerInputRef}
+                id="beat-visualizer-file"
                 type="file"
-                accept={VIDEO_ACCEPT}
-                onChange={handleVideoChange}
+                accept={VISUALIZER_ACCEPT}
+                onChange={handleVisualizerChange}
                 disabled={isBusy}
                 className="block w-full cursor-pointer rounded-xl border border-border bg-background px-3 py-2 text-sm font-light text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-foreground file:px-3 file:py-1.5 file:text-xs file:font-light file:text-background hover:file:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
               />
-              {videoFile ? (
-                <span className="truncate text-[11px] font-light text-muted-foreground">
-                  {videoFile.name} · {humanFileSize(videoFile.size)}
+              <span className="text-[11px] font-light text-muted-foreground">
+                Video → WebM · Imagen → WebP. Conversión local antes de subir.
+              </span>
+              {visualizerFile ? (
+                <span className="truncate text-[11px] font-light text-foreground">
+                  {visualizerKind === 'image' ? 'Imagen' : 'Video'} ·{' '}
+                  {visualizerFile.name} · {humanFileSize(visualizerFile.size)}
                 </span>
               ) : null}
             </div>
@@ -342,13 +517,24 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
             />
           </label>
 
-          {phase === 'uploading' ? (
+          {showProgress ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className="flex flex-col gap-2 rounded-xl border border-border bg-muted px-3 py-2"
+            >
+              <span className="text-xs font-light text-foreground">{buttonLabel()}</span>
+              <Progress value={progress} />
+            </div>
+          ) : null}
+
+          {optimizedSizeMb !== null && !showProgress ? (
             <p
               role="status"
               className="rounded-xl border border-border bg-muted px-3 py-2 text-xs font-light text-foreground"
             >
-              Subiendo archivos al bucket beats-media… esto puede tardar con .wav / .webm
-              pesados.
+              Peso final optimizado:{' '}
+              <span className="font-helvetica text-sm">{optimizedSizeMb.toFixed(2)} MB</span>
             </p>
           ) : null}
 
@@ -357,7 +543,7 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
               role="status"
               className="rounded-xl border border-border bg-muted px-3 py-2 text-xs font-light text-foreground"
             >
-              Beat &quot;{successTitle}&quot; creado en Supabase.
+              Beat &quot;{successTitle}&quot; publicado · audio + visualizer en R2, metadata en Supabase.
             </p>
           ) : null}
 

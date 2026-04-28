@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
+import Providers from './_components/Providers'
 import './globals.css'
 
 export const metadata: Metadata = {
@@ -21,7 +22,7 @@ export default function RootLayout({
           fontWeight: 300,
         }}
       >
-        {children}
+        <Providers>{children}</Providers>
       </body>
     </html>
   )

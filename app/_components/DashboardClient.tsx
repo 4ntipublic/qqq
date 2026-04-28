@@ -3,10 +3,9 @@
 import { LayoutGroup } from 'framer-motion'
 import Link from 'next/link'
 import { useCallback, useMemo, useState, type CSSProperties } from 'react'
-import BeatCard, { type BeatCardTheme, type BeatCartPayload } from './BeatCard'
-import CartBubble from './CartBubble'
-import { ThemeProvider, useThemeCustomizer } from './ThemeContext'
-import ThemeCustomizer from './ThemeCustomizer'
+import BeatCard, { type BeatCardTheme } from './BeatCard'
+import { useCart } from './CartContext'
+import { useThemeCustomizer } from './ThemeContext'
 import { rgbaFromHex } from './themeColor'
 
 type DashboardSceneProps = {
@@ -27,6 +26,7 @@ const beats = [
     genre: 'Trap / Jerk',
     tone: 'Ab Minor',
     videoSrc: '/assets/sentfck.mp4',
+    audioSrc: '/assets/sentfck.mp4',
   },
   {
     id: 'beat-002',
@@ -35,6 +35,7 @@ const beats = [
     genre: 'Trap / Jerk',
     tone: 'F Minor',
     videoSrc: '/assets/sentfck.mp4',
+    audioSrc: '/assets/sentfck.mp4',
   },
   {
     id: 'beat-003',
@@ -43,19 +44,18 @@ const beats = [
     genre: 'Trap / Jerk',
     tone: 'C Minor',
     videoSrc: '/assets/sentfck.mp4',
+    audioSrc: '/assets/sentfck.mp4',
   },
 ]
 
 function DashboardScene({ title, showCatalogLink }: DashboardSceneProps) {
   const [activeBeatId, setActiveBeatId] = useState<string | null>(null)
-  const [cartItems, setCartItems] = useState<BeatCartPayload[]>([])
+  const { addItem } = useCart()
   const { theme } = useThemeCustomizer()
   const headingColor = rgbaFromHex(theme.textColor, 0.96)
   const isHelveticaTypography = theme.fontFamily.toLowerCase().includes('helvetica')
 
-  const handleAddToCart = useCallback((item: BeatCartPayload) => {
-    setCartItems((currentItems) => [...currentItems, item])
-  }, [])
+  const handleAddToCart = addItem
 
   const handleSelectBeat = useCallback((beatId: string) => {
     setActiveBeatId(beatId)
@@ -96,9 +96,6 @@ function DashboardScene({ title, showCatalogLink }: DashboardSceneProps) {
 
   return (
     <>
-      <CartBubble items={cartItems} />
-      <ThemeCustomizer />
-
       <LayoutGroup id="beat-catalog-layout">
         <div
           className="relative z-[1] flex min-h-screen w-full flex-col items-center justify-center bg-gradient-to-b from-[#ffffff] via-[#f3f4f6] to-[#e5e7eb] px-4 py-7 sm:px-8 sm:py-10"
@@ -131,6 +128,7 @@ function DashboardScene({ title, showCatalogLink }: DashboardSceneProps) {
                     genre={beat.genre}
                     tone={beat.tone}
                     videoSrc={beat.videoSrc}
+                    audioSrc={beat.audioSrc}
                     theme={beatCardTheme}
                     isActive={activeBeatId === beat.id}
                     onSelect={handleSelectBeat}
@@ -162,9 +160,5 @@ export default function DashboardClient({
   title = 'akpkyy',
   showCatalogLink = true,
 }: DashboardClientProps = {}) {
-  return (
-    <ThemeProvider>
-      <DashboardScene title={title} showCatalogLink={showCatalogLink} />
-    </ThemeProvider>
-  )
+  return <DashboardScene title={title} showCatalogLink={showCatalogLink} />
 }
