@@ -43,6 +43,9 @@ const MUSICAL_KEYS = [
 ] as const
 const AUDIO_ACCEPT = 'audio/*'
 const VISUALIZER_ACCEPT = 'video/*,image/*,image/gif'
+const CONTRACT_ACCEPT = '.pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp'
+const CONTRACT_EXT = /\.(pdf|jpe?g|png|webp)$/i
+const CONTRACT_MAX_BYTES = 25 * 1024 * 1024 // 25MB
 const IMAGE_EXT = /\.(png|jpe?g|gif|bmp|webp|avif|tiff?)$/i
 const VIDEO_EXT = /\.(mp4|mov|webm|mkv|avi|m4v|ogv)$/i
 const GIF_EXT = /\.gif$/i
@@ -85,6 +88,7 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [visualizerFile, setVisualizerFile] = useState<File | null>(null)
   const [visualizerKind, setVisualizerKind] = useState<VisualizerKind | null>(null)
+  const [contractFile, setContractFile] = useState<File | null>(null)
   const [progress, setProgress] = useState(0)
   const [optimizedSizeMb, setOptimizedSizeMb] = useState<number | null>(null)
   const [releaseDate, setReleaseDate] = useState<Date | undefined>(undefined)
@@ -96,6 +100,7 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
 
   const audioInputRef = useRef<HTMLInputElement | null>(null)
   const visualizerInputRef = useRef<HTMLInputElement | null>(null)
+  const contractInputRef = useRef<HTMLInputElement | null>(null)
 
   const minDate = useMemo(() => {
     const d = new Date()
@@ -120,12 +125,36 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
     setAudioFile(null)
     setVisualizerFile(null)
     setVisualizerKind(null)
+    setContractFile(null)
     setProgress(0)
     setOptimizedSizeMb(null)
     setReleaseDate(undefined)
     setIsVisible(false)
     if (audioInputRef.current) audioInputRef.current.value = ''
     if (visualizerInputRef.current) visualizerInputRef.current.value = ''
+    if (contractInputRef.current) contractInputRef.current.value = ''
+  }
+
+  const handleContractChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null
+    if (!file) {
+      setContractFile(null)
+      return
+    }
+    if (!CONTRACT_EXT.test(file.name)) {
+      setError('El contrato debe ser PDF, JPG, PNG o WEBP.')
+      setContractFile(null)
+      event.target.value = ''
+      return
+    }
+    if (file.size > CONTRACT_MAX_BYTES) {
+      setError(`El contrato no puede superar ${CONTRACT_MAX_BYTES / (1024 * 1024)}MB.`)
+      setContractFile(null)
+      event.target.value = ''
+      return
+    }
+    setError(null)
+    setContractFile(file)
   }
 
   const handleAudioChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -220,6 +249,7 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
     try {
       let audioUrl: string | null = null
       let videoUrl: string | null = null
+      let contractUrl: string | null = null
 
       let audioReady: File | null = null
       if (audioFile) {
@@ -275,17 +305,20 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
         totalBytes > 0 ? Number(totalMb.toFixed(2)) : null
       setOptimizedSizeMb(roundedMb)
 
-      if (audioReady || visualizerReady) {
+      if (audioReady || visualizerReady || contractFile) {
         setPhase('uploading')
         setProgress(0)
 
         const totalSize =
-          (audioReady?.size ?? 0) + (visualizerReady?.size ?? 0)
+          (audioReady?.size ?? 0) +
+          (visualizerReady?.size ?? 0) +
+          (contractFile?.size ?? 0)
         let audioLoaded = 0
         let visualizerLoaded = 0
+        let contractLoaded = 0
         const updateAggregateProgress = () => {
           if (totalSize <= 0) return
-          const ratio = (audioLoaded + visualizerLoaded) / totalSize
+          const ratio = (audioLoaded + visualizerLoaded + contractLoaded) / totalSize
           setProgress(Math.round(Math.max(0, Math.min(1, ratio)) * 100))
         }
 
@@ -312,6 +345,17 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
             }),
           )
         }
+        if (contractFile) {
+          const file = contractFile
+          jobs.push(
+            uploadFile(file, 'contract', (ratio) => {
+              contractLoaded = ratio * file.size
+              updateAggregateProgress()
+            }).then((url) => {
+              contractUrl = url
+            }),
+          )
+        }
         await Promise.all(jobs)
         setProgress(100)
       }
@@ -325,6 +369,7 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
           categoryId: categoryId || null,
           videoUrl,
           audioUrl,
+          contractUrl,
           releaseDate: releaseDate ? releaseDate.toISOString() : null,
           isVisible,
           sizeMb: roundedMb,
@@ -450,7 +495,7 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
             </Select>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div className="flex flex-col gap-2">
               <Label htmlFor="beat-audio-file">Audio</Label>
               <input
@@ -489,6 +534,26 @@ export function BeatsUploadForm({ categories }: BeatsUploadFormProps) {
                 <span className="truncate text-[11px] font-light text-foreground">
                   {visualizerKind === 'image' ? 'Imagen' : 'Video'} ·{' '}
                   {visualizerFile.name} · {humanFileSize(visualizerFile.size)}
+                </span>
+              ) : null}
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="beat-contract-file">Contrato</Label>
+              <input
+                ref={contractInputRef}
+                id="beat-contract-file"
+                type="file"
+                accept={CONTRACT_ACCEPT}
+                onChange={handleContractChange}
+                disabled={isBusy}
+                className="block w-full cursor-pointer rounded-xl border border-border bg-background px-3 py-2 text-sm font-light text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-foreground file:px-3 file:py-1.5 file:text-xs file:font-light file:text-background hover:file:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+              <span className="text-[11px] font-light text-muted-foreground">
+                PDF, JPG, PNG o WEBP · hasta 25MB. Se entrega junto al audio.
+              </span>
+              {contractFile ? (
+                <span className="truncate text-[11px] font-light text-foreground">
+                  {contractFile.name} · {humanFileSize(contractFile.size)}
                 </span>
               ) : null}
             </div>

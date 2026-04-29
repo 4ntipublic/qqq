@@ -3,7 +3,7 @@ import { fetchBeats, fetchCategories } from '@/lib/admin-queries'
 import { BeatsSection } from './_components/beats-section'
 
 export const metadata: Metadata = {
-  title: 'Admin · Beats | akpkyy',
+  title: 'Admin · Beats',
 }
 
 export const dynamic = 'force-dynamic'

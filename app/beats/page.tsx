@@ -4,7 +4,7 @@ import BeatsCatalogClient from './_components/BeatsCatalogClient'
 import type { CatalogBeat } from './_components/WaveformRow'
 
 export const metadata: Metadata = {
-  title: 'Catálogo de Beats | akpkyy',
+  title: 'Catálogo de Beats',
   description: 'Catálogo completo de beats instrumentales akpkyy.',
 }
 
@@ -25,7 +25,8 @@ export default async function BeatsCatalogPage() {
       key: b.key,
       genre: b.genre,
       videoUrl: b.videoUrl,
-      audioUrl: b.audioUrl as string,
+      // Proxy through our server so the canonical R2 URL is never exposed.
+      audioUrl: `/api/beats/${b.id}/stream`,
       releaseDate: b.releaseDate,
     }))
 

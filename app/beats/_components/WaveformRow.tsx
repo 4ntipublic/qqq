@@ -12,6 +12,8 @@ export type CatalogBeat = {
   videoUrl: string | null
   audioUrl: string
   releaseDate: string | null
+  /** Per-beat display format used by the home featured section. */
+  featuredFormat?: 'grid' | 'list'
 }
 
 type WaveformRowProps = {

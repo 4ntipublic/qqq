@@ -1,8 +1,8 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient as createSsrClient } from '@/utils/supabase/server'
 import { createAdminClient } from '@/utils/supabase/admin'
+import { assertAdmin } from '@/lib/admin-guard'
 import { deleteR2Objects, extractR2Key } from '@/lib/r2'
 
 export type CreateBeatInput = {
@@ -12,21 +12,13 @@ export type CreateBeatInput = {
   categoryId: string | null
   videoUrl: string | null
   audioUrl: string | null
+  contractUrl: string | null
   releaseDate: string | null
   isVisible: boolean
   sizeMb: number | null
 }
 
 export type ActionResult = { ok: boolean; error?: string }
-
-async function assertAdminSession(): Promise<ActionResult> {
-  const ssr = await createSsrClient()
-  const { data, error } = await ssr.auth.getUser()
-  if (error || !data.user) {
-    return { ok: false, error: 'Sesión expirada. Volvé a loguearte.' }
-  }
-  return { ok: true }
-}
 
 function validate(input: CreateBeatInput): string | null {
   if (!input.title?.trim()) return 'El título es requerido.'
@@ -39,7 +31,7 @@ export async function createBeatAction(input: CreateBeatInput): Promise<ActionRe
   const error = validate(input)
   if (error) return { ok: false, error }
 
-  const auth = await assertAdminSession()
+  const auth = await assertAdmin()
   if (!auth.ok) return auth
 
   const supabase = createAdminClient()
@@ -50,6 +42,7 @@ export async function createBeatAction(input: CreateBeatInput): Promise<ActionRe
     category_id: input.categoryId ?? null,
     video_url: input.videoUrl?.trim() || null,
     audio_url: input.audioUrl?.trim() || null,
+    contract_url: input.contractUrl?.trim() || null,
     release_date: input.releaseDate,
     is_visible: input.isVisible,
     size_mb:
@@ -69,14 +62,14 @@ export async function createBeatAction(input: CreateBeatInput): Promise<ActionRe
 export async function deleteBeatAction(id: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: 'ID inválido.' }
 
-  const auth = await assertAdminSession()
+  const auth = await assertAdmin()
   if (!auth.ok) return auth
 
   const supabase = createAdminClient()
 
   const { data: beatRow, error: fetchError } = await supabase
     .from('beats')
-    .select('id, audio_url, video_url')
+    .select('id, audio_url, video_url, contract_url')
     .eq('id', id)
     .maybeSingle()
 
@@ -86,6 +79,7 @@ export async function deleteBeatAction(id: string): Promise<ActionResult> {
   const r2Keys = [
     extractR2Key(beatRow.audio_url as string | null),
     extractR2Key(beatRow.video_url as string | null),
+    extractR2Key(beatRow.contract_url as string | null),
   ].filter((k): k is string => Boolean(k))
 
   if (r2Keys.length > 0) {

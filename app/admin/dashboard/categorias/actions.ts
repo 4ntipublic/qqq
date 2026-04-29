@@ -1,20 +1,11 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { createClient as createSsrClient } from '@/utils/supabase/server'
 import { createAdminClient } from '@/utils/supabase/admin'
+import { assertAdmin } from '@/lib/admin-guard'
 import { slugify } from '@/lib/admin-data'
 
 export type ActionResult = { ok: boolean; error?: string }
-
-async function assertAdminSession(): Promise<ActionResult> {
-  const ssr = await createSsrClient()
-  const { data, error } = await ssr.auth.getUser()
-  if (error || !data.user) {
-    return { ok: false, error: 'Sesión expirada. Volvé a loguearte.' }
-  }
-  return { ok: true }
-}
 
 export async function createCategoryAction(formData: FormData): Promise<ActionResult> {
   const rawName = String(formData.get('name') ?? '').trim()
@@ -23,7 +14,7 @@ export async function createCategoryAction(formData: FormData): Promise<ActionRe
   const slug = slugify(rawName)
   if (!slug) return { ok: false, error: 'Nombre inválido.' }
 
-  const auth = await assertAdminSession()
+  const auth = await assertAdmin()
   if (!auth.ok) return auth
 
   const supabase = createAdminClient()
@@ -48,7 +39,7 @@ export async function createCategoryAction(formData: FormData): Promise<ActionRe
 export async function deleteCategoryAction(id: string): Promise<ActionResult> {
   if (!id) return { ok: false, error: 'ID inválido.' }
 
-  const auth = await assertAdminSession()
+  const auth = await assertAdmin()
   if (!auth.ok) return auth
 
   const supabase = createAdminClient()

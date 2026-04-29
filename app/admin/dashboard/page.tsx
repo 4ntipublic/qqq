@@ -16,7 +16,7 @@ import { StatCard } from './_components/stat-card'
 import { OrdersChart } from './_components/visits-chart'
 
 export const metadata: Metadata = {
-  title: 'Admin · Inicio | akpkyy',
+  title: 'Admin · Inicio',
 }
 
 export const dynamic = 'force-dynamic'

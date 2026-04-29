@@ -1,15 +1,15 @@
 import type { Metadata } from 'next'
-import { fetchSales } from '@/lib/admin-queries'
-import { SalesTable } from './_components/sales-table'
+import { fetchAdminSales } from '@/lib/admin-queries'
+import { AdminSalesClient } from './_components/admin-sales-client'
 
 export const metadata: Metadata = {
-  title: 'Admin · Ventas | akpkyy',
+  title: 'Admin · Ventas',
 }
 
 export const dynamic = 'force-dynamic'
 
 export default async function VentasPage() {
-  const sales = await fetchSales()
+  const sales = await fetchAdminSales()
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-5 py-8 sm:px-8 sm:py-10">
@@ -21,11 +21,12 @@ export default async function VentasPage() {
           Invoices y pagos
         </h1>
         <p className="text-sm font-light text-muted-foreground">
-          Registro completo de invoices con estado, método de pago y monto.
+          Stripe se concilia automáticamente vía webhook. Para ventas por
+          transferencia o PayPal podés aprobar manualmente desde acá.
         </p>
       </header>
 
-      <SalesTable initialSales={sales} />
+      <AdminSalesClient initialSales={sales} />
     </div>
   )
 }

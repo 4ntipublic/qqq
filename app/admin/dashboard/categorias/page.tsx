@@ -3,7 +3,7 @@ import { fetchCategories } from '@/lib/admin-queries'
 import { CategoriesManager } from './_components/categories-manager'
 
 export const metadata: Metadata = {
-  title: 'Admin · Categorías | akpkyy',
+  title: 'Admin · Categorías',
 }
 
 export const dynamic = 'force-dynamic'

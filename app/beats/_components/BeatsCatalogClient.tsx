@@ -3,14 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import Link from 'next/link'
-import { LayoutGrid, List, Search, ShoppingBag, X } from 'lucide-react'
+import { LayoutGrid, List, Search } from 'lucide-react'
 import * as SliderPrimitive from '@radix-ui/react-slider'
 import {
   Sheet,
   SheetContent,
   SheetDescription,
   SheetTitle,
-  SheetTrigger,
 } from '@/components/ui/sheet'
 import BeatCard, {
   type BeatCardTheme,
@@ -20,9 +19,23 @@ import { useCart } from '@/app/_components/CartContext'
 import { useThemeCustomizer } from '@/app/_components/ThemeContext'
 import { WaveformRow, type CatalogBeat } from './WaveformRow'
 
+export type HomeUserBadge = {
+  displayName: string
+  avatarUrl: string | null
+}
+
 interface BeatsCatalogClientProps {
   beats: CatalogBeat[]
   categories: string[]
+  /**
+   * When true, the client renders the home "featured" experience:
+   * - no toolbar / filters / pagination
+   * - beats render in the order received, each in its own `featuredFormat`
+   * - shows the big akpkyy title + small "Ver catálogo completo" CTA
+   */
+  featuredOnly?: boolean
+  /** When provided, the user pill in the floating cluster shows the avatar/initial. */
+  userBadge?: HomeUserBadge | null
 }
 
 type LicenseDef = {
@@ -39,7 +52,12 @@ const LICENSES: LicenseDef[] = [
   { id: 'trackouts', name: 'Trackouts (Stems)', priceLabel: '$40', price: 40, description: 'Incluye stems + WAV + MP3.' },
 ]
 
-export default function BeatsCatalogClient({ beats, categories }: BeatsCatalogClientProps) {
+export default function BeatsCatalogClient({
+  beats,
+  categories,
+  featuredOnly = false,
+  userBadge = null,
+}: BeatsCatalogClientProps) {
   const cart = useCart()
   const { theme } = useThemeCustomizer()
 
@@ -63,6 +81,7 @@ export default function BeatsCatalogClient({ beats, categories }: BeatsCatalogCl
   }, [bpmBounds[0], bpmBounds[1]])
 
   const filteredBeats = useMemo(() => {
+    if (featuredOnly) return beats
     const q = query.trim().toLowerCase()
     return beats.filter((beat) => {
       if (q && !beat.title.toLowerCase().includes(q)) return false
@@ -70,16 +89,20 @@ export default function BeatsCatalogClient({ beats, categories }: BeatsCatalogCl
       if (selectedGenres.length > 0 && !selectedGenres.includes(beat.genre)) return false
       return true
     })
-  }, [beats, query, bpmRange[0], bpmRange[1], selectedGenres])
+  }, [featuredOnly, beats, query, bpmRange[0], bpmRange[1], selectedGenres])
 
   useEffect(() => {
     setCurrentPage(1)
   }, [query, bpmRange[0], bpmRange[1], selectedGenres.length, viewMode])
 
   const beatsPerPage = viewMode === 'grid' ? 9 : 6
-  const totalPages = Math.max(1, Math.ceil(filteredBeats.length / beatsPerPage))
-  const startIndex = (currentPage - 1) * beatsPerPage
-  const visibleBeats = filteredBeats.slice(startIndex, startIndex + beatsPerPage)
+  const totalPages = featuredOnly
+    ? 1
+    : Math.max(1, Math.ceil(filteredBeats.length / beatsPerPage))
+  const startIndex = featuredOnly ? 0 : (currentPage - 1) * beatsPerPage
+  const visibleBeats = featuredOnly
+    ? filteredBeats
+    : filteredBeats.slice(startIndex, startIndex + beatsPerPage)
 
   const [playingId, setPlayingId] = useState<string | null>(null)
   const currentAudioRef = useRef<HTMLAudioElement | null>(null)
@@ -184,102 +207,28 @@ export default function BeatsCatalogClient({ beats, categories }: BeatsCatalogCl
   )
 
   return (
-    <main className="min-h-screen bg-[#f7f7f8] text-neutral-900">
-      <div className="mx-auto w-full max-w-[1200px] px-4 py-6 sm:px-6 sm:py-8">
-        {/* Header */}
-        <header className="mb-6 flex items-center justify-between">
-          <Link
-            href="/"
-            className="text-[24px] font-semibold tracking-tight text-neutral-900 transition hover:opacity-70"
-          >
-            pky.
-          </Link>
+    <main
+      className={
+        featuredOnly
+          ? 'relative min-h-screen bg-[#fafafa] text-neutral-900'
+          : 'min-h-screen bg-[#f7f7f8] text-neutral-900'
+      }
+    >
+      <div
+        className={
+          featuredOnly
+            ? 'mx-auto flex min-h-screen w-full max-w-[1200px] flex-col items-center justify-center gap-10 px-4 py-20 sm:gap-14 sm:px-6'
+            : 'mx-auto w-full max-w-[1200px] px-4 pt-20 pb-8 sm:px-6'
+        }
+      >
+        {/* Featured hero title (catalog mode has no local header — global handles it). */}
+        {featuredOnly ? (
+          <h1 className="text-center font-helvetica text-[clamp(56px,11vw,112px)] font-medium leading-[0.95] tracking-[-0.045em] text-neutral-900">
+            akpkyy
+          </h1>
+        ) : null}
 
-          <Sheet>
-            <SheetTrigger asChild>
-              <button
-                type="button"
-                className="relative inline-flex h-8 items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 text-[12.5px] font-medium text-neutral-800 transition hover:bg-neutral-50"
-                aria-label="Abrir carrito"
-              >
-                <ShoppingBag className="h-3.5 w-3.5" strokeWidth={1.75} />
-                Carrito
-                {cart.items.length > 0 ? (
-                  <span className="ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-neutral-900 px-1 text-[10px] font-semibold text-white">
-                    {cart.items.length}
-                  </span>
-                ) : null}
-              </button>
-            </SheetTrigger>
-            <SheetContent
-              side="right"
-              className="flex w-full flex-col gap-0 sm:max-w-md"
-            >
-              <div className="flex flex-col gap-1 border-b border-neutral-200 pb-4">
-                <SheetTitle>Carrito</SheetTitle>
-                <SheetDescription>
-                  {cart.items.length === 0
-                    ? 'Tu carrito está vacío'
-                    : `${cart.items.length} artículo${cart.items.length === 1 ? '' : 's'}`}
-                </SheetDescription>
-              </div>
-              <div className="flex-1 overflow-y-auto py-4">
-                {cart.items.length === 0 ? (
-                  <p className="px-1 text-[13px] text-neutral-500">
-                    Aún no agregaste nada.
-                  </p>
-                ) : (
-                  <ul className="flex flex-col gap-3">
-                    {cart.items.map((item, index) => {
-                      const lic = LICENSES.find((l) => l.id === item.licenseId)
-                      const price =
-                        lic?.price ?? (Number((item.priceLabel || '').replace(/\D/g, '')) || 0)
-                      return (
-                        <li
-                          key={`${item.beatId}-${item.licenseId}-${index}`}
-                          className="flex items-start justify-between gap-3 rounded-xl border border-neutral-200 bg-white px-3 py-2.5"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-[13px] font-medium text-neutral-900">
-                              {item.beatTitle}
-                            </p>
-                            <p className="text-[11.5px] text-neutral-500">
-                              {item.licenseName} · ${price}
-                            </p>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => cart.removeItem(index)}
-                            aria-label="Quitar del carrito"
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-full text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
-                          >
-                            <X className="h-3.5 w-3.5" strokeWidth={1.75} />
-                          </button>
-                        </li>
-                      )
-                    })}
-                  </ul>
-                )}
-              </div>
-              {cart.items.length > 0 ? (
-                <div className="border-t border-neutral-200 pt-4">
-                  <div className="mb-3 flex items-center justify-between text-[14px]">
-                    <span className="text-neutral-600">Total</span>
-                    <span className="font-semibold tabular-nums">${cartTotal}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className="w-full rounded-full bg-neutral-900 px-4 py-2.5 text-[13px] font-medium text-white transition hover:bg-neutral-800"
-                  >
-                    Ir a pagar
-                  </button>
-                </div>
-              ) : null}
-            </SheetContent>
-          </Sheet>
-        </header>
-
-        {/* Toolbar */}
+        {!featuredOnly ? (
         <div className="mb-5 rounded-2xl border border-black/[0.06] bg-white/85 p-4 shadow-[0_2px_14px_rgba(17,24,39,0.04)] backdrop-blur">
           <div className="flex flex-wrap items-center gap-3">
             {/* Search — thin, minimal */}
@@ -427,15 +376,73 @@ export default function BeatsCatalogClient({ beats, categories }: BeatsCatalogCl
             {filteredBeats.length} de {beats.length} beats
           </div>
         </div>
+        ) : null}
 
         {/* Body — wrapped in AnimatePresence so list↔grid swaps glide with
             the same appleSpring physics used by BeatCard. mode="wait"
             keeps a single section in flight to avoid double-mount cost
             of WaveformRow (which owns an AudioContext + rAF loop). */}
         {filteredBeats.length === 0 ? (
-          <div className="flex items-center justify-center rounded-2xl border border-black/[0.06] bg-white/60 px-6 py-16 text-[13px] text-neutral-500">
-            No hay beats que coincidan con los filtros.
+          <div className="flex items-center justify-center rounded-3xl border-none bg-white/60 px-6 py-16 text-[13px] font-light text-neutral-500 backdrop-blur-xl">
+            {featuredOnly
+              ? 'No hay beats destacados todavía.'
+              : 'No hay beats que coincidan con los filtros.'}
           </div>
+        ) : featuredOnly ? (
+          <motion.section
+            key="featured"
+            variants={viewVariants}
+            initial="initial"
+            animate="enter"
+            exit="exit"
+            transition={appleSpring}
+            className="flex w-full flex-wrap justify-center gap-5"
+            style={{ willChange: 'transform, opacity' }}
+          >
+            {visibleBeats.map((beat) => {
+              const isList = beat.featuredFormat === 'list'
+              const widthClass = isList
+                ? 'w-full max-w-[1120px]'
+                : 'w-full max-w-[420px] sm:w-[360px] xl:w-[360px]'
+              const hideForExpansion =
+                activeBeatId !== null && activeBeatId !== beat.id
+              return (
+                <div
+                  key={beat.id}
+                  className={`min-w-0 transition-opacity duration-300 ${widthClass} ${
+                    hideForExpansion
+                      ? 'pointer-events-none invisible opacity-0'
+                      : 'visible opacity-100'
+                  }`}
+                >
+                  {isList ? (
+                    <WaveformRow
+                      beat={beat}
+                      isPlaying={playingId === beat.id}
+                      onTogglePlay={handleTogglePlay}
+                      onOpenPurchase={handleOpenPurchase}
+                      pauseCurrentAudio={pauseCurrentAudio}
+                    />
+                  ) : (
+                    <BeatCard
+                      beatId={beat.id}
+                      title={beat.title}
+                      bpm={String(beat.bpm)}
+                      genre={beat.genre}
+                      tone={beat.key || '—'}
+                      videoSrc={beat.videoUrl ?? undefined}
+                      audioSrc={beat.audioUrl ?? undefined}
+                      theme={beatCardTheme}
+                      isActive={activeBeatId === beat.id}
+                      onSelect={(id) => setActiveBeatId(id)}
+                      onCloseExpansion={() => setActiveBeatId(null)}
+                      onAddToCart={handleGridAddToCart}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </motion.section>
         ) : (
           <AnimatePresence mode="wait" initial={false}>
             {viewMode === 'list' ? (
@@ -504,8 +511,19 @@ export default function BeatsCatalogClient({ beats, categories }: BeatsCatalogCl
           </AnimatePresence>
         )}
 
+        {featuredOnly && filteredBeats.length > 0 ? (
+          <div className="flex w-full justify-center">
+            <Link
+              href="/beats"
+              className="inline-flex items-center rounded-full border border-neutral-200 bg-white px-3.5 py-1.5 text-[12px] font-medium text-neutral-700 shadow-[0_1px_2px_rgba(17,24,39,0.04)] transition hover:bg-neutral-50"
+            >
+              Ver catálogo completo
+            </Link>
+          </div>
+        ) : null}
+
         {/* Pagination */}
-        {totalPages > 1 ? (
+        {!featuredOnly && totalPages > 1 ? (
           <nav
             aria-label="Paginación"
             className="mt-6 flex items-center justify-center gap-1"
@@ -646,3 +664,4 @@ export default function BeatsCatalogClient({ beats, categories }: BeatsCatalogCl
     </main>
   )
 }
+

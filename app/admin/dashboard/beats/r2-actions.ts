@@ -3,14 +3,14 @@
 import { randomUUID } from 'node:crypto'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import { createClient as createSsrClient } from '@/utils/supabase/server'
+import { assertAdmin } from '@/lib/admin-guard'
 import { R2_BUCKET, buildR2PublicUrl, r2Client } from '@/lib/r2'
 
-const ALLOWED_FOLDERS = new Set(['audio', 'video', 'image'])
+const ALLOWED_FOLDERS = new Set(['audio', 'video', 'image', 'contract'])
 const SAFE_EXT = /^[a-z0-9]{1,8}$/i
 const PRESIGN_EXPIRES_SECONDS = 60 * 5
 
-export type R2UploadFolder = 'audio' | 'video' | 'image'
+export type R2UploadFolder = 'audio' | 'video' | 'image' | 'contract'
 
 export type GetR2UploadUrlInput = {
   folder: R2UploadFolder
@@ -40,11 +40,8 @@ export async function getR2UploadUrl(
     return { ok: false, error: 'Content-Type inválido.' }
   }
 
-  const ssr = await createSsrClient()
-  const { data, error } = await ssr.auth.getUser()
-  if (error || !data.user) {
-    return { ok: false, error: 'Sesión expirada. Volvé a loguearte.' }
-  }
+  const auth = await assertAdmin()
+  if (!auth.ok) return { ok: false, error: auth.error }
 
   const key = `${input.folder}/${randomUUID()}.${cleanExt}`
 

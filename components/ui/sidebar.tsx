@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Menu, X } from 'lucide-react'
+import { ArrowLeft, Menu, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { Separator } from '@/components/ui/separator'
@@ -117,6 +117,14 @@ function SidebarInner({
 }) {
   return (
     <>
+      <Link
+        href="/"
+        onClick={onItemClick}
+        className="group inline-flex items-center gap-1.5 self-start rounded-full border border-sidebar-border bg-background/60 px-2.5 py-1 text-[11px] font-light text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+      >
+        <ArrowLeft className="h-3 w-3 transition-transform duration-200 group-hover:-translate-x-0.5" />
+        Volver al inicio
+      </Link>
       <div className="px-1 pb-2">
         <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground">
           akpkyy · admin
@@ -178,6 +186,13 @@ export function SidebarShell({ title, items, profile, children }: SidebarShellPr
             <span className="font-helvetica text-sm font-light tracking-[0.01em] text-foreground">
               akpkyy · admin
             </span>
+            <Link
+              href="/"
+              aria-label="Volver al inicio"
+              className="ml-1 inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+            </Link>
           </div>
           <form action="/admin/logout" method="post">
             <button

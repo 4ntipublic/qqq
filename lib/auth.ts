@@ -13,6 +13,18 @@ export function resolveAdminEmail(identifier: string): string {
   return value.toLowerCase()
 }
 
+/**
+ * Reads `is_admin` from the JWT claim `app_metadata.is_admin`.
+ * Zero DB queries — the claim is set by the SQL migration and synced via trigger.
+ */
+export function isAdminUser(user: User | null | undefined): boolean {
+  if (!user) return false
+  const meta = (user.app_metadata ?? {}) as Record<string, unknown>
+  if (meta.is_admin === true) return true
+  // Legacy fallback: pre-migration admin identified by email.
+  return user.email?.toLowerCase() === ADMIN_EMAIL
+}
+
 export interface AdminProfile {
   displayName: string
   username: string

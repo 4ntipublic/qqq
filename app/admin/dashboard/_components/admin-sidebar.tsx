@@ -1,7 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { LayoutDashboard, Tags, Receipt, Music2 } from 'lucide-react'
+import { LayoutDashboard, Tags, Receipt, Music2, Sparkles, Users } from 'lucide-react'
 import { SidebarShell, type SidebarNavItem, type SidebarProfile } from '@/components/ui/sidebar'
 
 const navItems: SidebarNavItem[] = [
@@ -9,6 +9,18 @@ const navItems: SidebarNavItem[] = [
     label: 'Inicio',
     href: '/admin/dashboard',
     icon: LayoutDashboard,
+  },
+  {
+    label: 'Beats',
+    href: '/admin/dashboard/beats',
+    icon: Music2,
+    matchPrefix: true,
+  },
+  {
+    label: 'Destacados',
+    href: '/admin/dashboard/featured',
+    icon: Sparkles,
+    matchPrefix: true,
   },
   {
     label: 'Categorías',
@@ -23,9 +35,9 @@ const navItems: SidebarNavItem[] = [
     matchPrefix: true,
   },
   {
-    label: 'Beats',
-    href: '/admin/dashboard/beats',
-    icon: Music2,
+    label: 'Usuarios',
+    href: '/admin/dashboard/users',
+    icon: Users,
     matchPrefix: true,
   },
 ]

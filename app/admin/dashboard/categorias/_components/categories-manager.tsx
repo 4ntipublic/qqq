@@ -7,29 +7,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Empty } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import type { Category } from '@/lib/admin-data'
 import { createCategoryAction, deleteCategoryAction } from '../actions'
-
-const GENRE_SUGGESTIONS = [
-  'Trap',
-  'Jerk',
-  'Ambient',
-  'Drill',
-  'Boom Bap',
-  'Lo-fi',
-  'House',
-  'RnB',
-  'Afrobeats',
-  'Hyperpop',
-]
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—'
@@ -50,7 +30,6 @@ interface CategoriesManagerProps {
 
 export function CategoriesManager({ initialCategories }: CategoriesManagerProps) {
   const [newName, setNewName] = useState('')
-  const [suggestion, setSuggestion] = useState<string>('')
   const [error, setError] = useState<string | null>(null)
   const [pendingId, setPendingId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
@@ -70,7 +49,6 @@ export function CategoriesManager({ initialCategories }: CategoriesManagerProps)
         return
       }
       setNewName('')
-      setSuggestion('')
       setError(null)
     })
   }
@@ -100,8 +78,11 @@ export function CategoriesManager({ initialCategories }: CategoriesManagerProps)
             <Label htmlFor="category-name">Nombre</Label>
             <Input
               id="category-name"
-              placeholder="ej. Hyperpop"
               value={newName}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
               onChange={(event) => {
                 setNewName(event.target.value)
                 setError(null)
@@ -113,29 +94,6 @@ export function CategoriesManager({ initialCategories }: CategoriesManagerProps)
                 }
               }}
             />
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <Label>Sugerencias</Label>
-            <Select
-              value={suggestion}
-              onValueChange={(value) => {
-                setSuggestion(value)
-                setNewName(value)
-                setError(null)
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Elegí un preset monocromático…" />
-              </SelectTrigger>
-              <SelectContent>
-                {GENRE_SUGGESTIONS.map((genre) => (
-                  <SelectItem key={genre} value={genre}>
-                    {genre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
           {error ? (
